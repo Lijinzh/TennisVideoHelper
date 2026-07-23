@@ -27,3 +27,12 @@ class MediaInfo:
 class MediaProbeError(RuntimeError):
     """媒体元数据无法读取。"""
 
+
+@dataclass(frozen=True, slots=True)
+class AudioEvent:
+    """音频瞬态候选事件。"""
+
+    timestamp: float
+    confidence: float
+    strength: float
+
