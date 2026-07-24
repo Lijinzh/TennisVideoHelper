@@ -90,7 +90,14 @@ def test_parse_probe_payload_detects_dolby_vision(tmp_path: Path) -> None:
                 "width": 1920,
                 "height": 1080,
                 "avg_frame_rate": "30/1",
-                "side_data_list": [{"side_data_type": "DOVI configuration record"}],
+                "color_transfer": "arib-std-b67",
+                "side_data_list": [
+                    {
+                        "side_data_type": "DOVI configuration record",
+                        "dv_profile": 8,
+                        "dv_bl_signal_compatibility_id": 4,
+                    }
+                ],
             }
         ],
         "format": {"duration": "5.0"},
@@ -99,6 +106,9 @@ def test_parse_probe_payload_detects_dolby_vision(tmp_path: Path) -> None:
     media = parse_probe_payload(tmp_path / "dolby.mov", payload)
 
     assert media.is_dolby_vision is True
+    assert media.dolby_vision_profile == 8
+    assert media.dolby_vision_bl_compatibility_id == 4
+    assert media.has_hlg_compatible_dolby_base_layer is True
 
 
 def test_scan_videos_filters_supported_extensions_and_sorts(tmp_path: Path) -> None:

@@ -28,6 +28,25 @@ class MediaInfo:
     color_space: str | None = None
     color_range: str | None = None
     video_profile: str | None = None
+    dolby_vision_profile: int | None = None
+    dolby_vision_bl_compatibility_id: int | None = None
+
+    @property
+    def has_hlg_compatible_dolby_base_layer(self) -> bool:
+        """是否为可作为标准 HLG 读取的 Dolby Vision Profile 8.4。"""
+
+        return (
+            self.is_dolby_vision
+            and self.dolby_vision_profile == 8
+            and self.dolby_vision_bl_compatibility_id == 4
+            and self.color_transfer == "arib-std-b67"
+        )
+
+    @property
+    def requires_main10_output(self) -> bool:
+        """导出时是否必须保留 10-bit HEVC Main10。"""
+
+        return self.is_hdr10 or self.has_hlg_compatible_dolby_base_layer
 
 
 class MediaProbeError(RuntimeError):

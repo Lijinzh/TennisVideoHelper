@@ -24,8 +24,8 @@ def build_ffmpeg_command(
 ) -> list[str]:
     """构造不缩放、不强制改帧率的 NVENC 精确切片命令。"""
 
-    if media.is_dolby_vision:
-        raise ExportError("第一版不处理 Dolby Vision，以免动态元数据丢失导致偏色")
+    if media.is_dolby_vision and not media.has_hlg_compatible_dolby_base_layer:
+        raise ExportError("仅支持带 HLG 兼容基础层的 Dolby Vision Profile 8.4")
 
     duration = segment.output_end - segment.output_start
     command = [
@@ -67,7 +67,7 @@ def build_ffmpeg_command(
             "-1",
         ]
     )
-    if media.is_hdr10:
+    if media.requires_main10_output:
         command.extend(
             [
                 "-pix_fmt",
@@ -179,12 +179,12 @@ def verify_clip(
         return False, "输出画面旋转信息与源视频不一致"
     expected_pixel_formats = (
         {"yuv420p10le", "p010le"}
-        if source_media.is_hdr10
+        if source_media.requires_main10_output
         else {"yuv420p"}
     )
     if media.pixel_format not in expected_pixel_formats:
         return False, "输出像素格式与源视频策略不一致"
-    if source_media.is_hdr10 and (media.video_profile or "").casefold() not in {
+    if source_media.requires_main10_output and (media.video_profile or "").casefold() not in {
         "main 10",
         "main10",
     }:

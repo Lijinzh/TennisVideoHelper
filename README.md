@@ -113,7 +113,8 @@ rally_support_threshold: float = 0.4  # 强事件确认后维持回合的支撑�
 - 30/60 FPS 混合的可变帧率输入使用每帧真实时间戳分析，导出时不强制改成固定帧率；报告中的 `fps` 是整段视频平均值，局部片段可能显示为 30 或 60 FPS。
 - SDR 使用 HEVC 8-bit NVENC。
 - HDR10 使用 HEVC Main10 NVENC，并保留 PQ 传递函数标记。
-- 第一版检测到 Dolby Vision 会停止处理该视频，避免动态元数据丢失造成偏色。
+- Dolby Vision Profile 8.4 可使用其 HLG 兼容基础层分析，并导出为 10-bit HLG Main10；NVENC 输出不再包含 Dolby Vision 动态元数据，但会保留 BT.2020、HLG 传递函数和色彩范围。
+- 其他 Dolby Vision Profile 会停止处理，避免在没有兼容基础层时造成偏色。
 - 没有音轨的视频会停止处理，因为第一版要求音画融合。
 
 ## 校准

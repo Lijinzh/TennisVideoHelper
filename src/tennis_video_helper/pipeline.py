@@ -130,8 +130,10 @@ def _process_video(
     media = services.probe_media(source)
     if not media.audio_codec:
         raise RuntimeError(f"视频没有音轨，第一版无法执行音画融合：{source}")
-    if media.is_dolby_vision:
-        raise RuntimeError(f"检测到 Dolby Vision，第一版为避免偏色已停止：{source}")
+    if media.is_dolby_vision and not media.has_hlg_compatible_dolby_base_layer:
+        raise RuntimeError(
+            f"检测到不支持的 Dolby Vision Profile，仅放行 HLG 兼容的 Profile 8.4：{source}"
+        )
 
     output_dir = _next_available_output_dir(output_root, source.stem)
     clips_dir = output_dir / "clips"

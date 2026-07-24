@@ -88,6 +88,7 @@ def parse_probe_payload(path: Path, payload: dict[str, Any]) -> MediaInfo:
     serialized_stream = json.dumps(video_stream, ensure_ascii=False).lower()
     codec_tag = str(video_stream.get("codec_tag_string", "")).lower()
     is_dolby_vision = codec_tag.startswith("dv") or "dovi" in serialized_stream
+    dolby_profile, dolby_compatibility_id = _parse_dolby_vision_details(video_stream)
     is_hdr10 = color_transfer == "smpte2084" and not is_dolby_vision
 
     return MediaInfo(
@@ -119,6 +120,8 @@ def parse_probe_payload(path: Path, payload: dict[str, Any]) -> MediaInfo:
         color_space=video_stream.get("color_space"),
         color_range=video_stream.get("color_range"),
         video_profile=video_stream.get("profile"),
+        dolby_vision_profile=dolby_profile,
+        dolby_vision_bl_compatibility_id=dolby_compatibility_id,
     )
 
 
@@ -136,6 +139,26 @@ def _parse_float(value: Any, *, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _parse_dolby_vision_details(
+    video_stream: dict[str, Any],
+) -> tuple[int | None, int | None]:
+    for side_data in video_stream.get("side_data_list", []):
+        if side_data.get("side_data_type") != "DOVI configuration record":
+            continue
+        return (
+            _parse_optional_int(side_data.get("dv_profile")),
+            _parse_optional_int(side_data.get("dv_bl_signal_compatibility_id")),
+        )
+    return None, None
+
+
+def _parse_optional_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _parse_rotation(video_stream: dict[str, Any]) -> int:

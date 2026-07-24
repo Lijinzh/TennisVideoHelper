@@ -145,6 +145,32 @@ def test_build_ffmpeg_command_rejects_dolby_vision(tmp_path: Path) -> None:
         )
 
 
+def test_build_ffmpeg_command_uses_hlg_main10_for_profile_84_base_layer(
+    tmp_path: Path,
+) -> None:
+    media = replace(
+        _media(tmp_path, dolby=True),
+        pixel_format="yuv420p10le",
+        color_transfer="arib-std-b67",
+        color_primaries="bt2020",
+        color_space="bt2020nc",
+        color_range="tv",
+        dolby_vision_profile=8,
+        dolby_vision_bl_compatibility_id=4,
+    )
+
+    command = build_ffmpeg_command(
+        media,
+        _segment(),
+        tmp_path / "hlg.mp4",
+        AnalysisConfig(),
+    )
+
+    assert command[command.index("-pix_fmt") + 1] == "p010le"
+    assert command[command.index("-profile:v") + 1] == "main10"
+    assert command[command.index("-color_trc") + 1] == "arib-std-b67"
+
+
 def test_write_reports_creates_csv_and_json(tmp_path: Path) -> None:
     media = _media(tmp_path)
     record = ClipRecord(

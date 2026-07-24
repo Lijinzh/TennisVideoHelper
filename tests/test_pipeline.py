@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -78,6 +79,46 @@ def test_process_batch_rejects_video_without_audio(tmp_path: Path) -> None:
 
     assert result.failure_count == 1
     assert "没有音轨" in (result.results[0].error or "")
+
+
+def test_process_batch_allows_profile_84_hlg_base_layer(tmp_path: Path) -> None:
+    source = tmp_path / "profile84.mov"
+    media = replace(
+        _media(source),
+        pixel_format="yuv420p10le",
+        color_transfer="arib-std-b67",
+        is_dolby_vision=True,
+        dolby_vision_profile=8,
+        dolby_vision_bl_compatibility_id=4,
+    )
+    services = PipelineServices(
+        scan_videos=lambda _: [source],
+        probe_media=lambda _: media,
+        extract_audio=lambda _source, target, _sample_rate: target.touch(),
+        load_audio=lambda _: (np.zeros(100, dtype=np.float32), 22_050),
+        detect_audio_events=lambda *_args: [],
+        analyze_video=lambda *_args: [],
+        export_clip=lambda *_args: None,
+        verify_clip=lambda *_args: (True, None),
+        write_reports=lambda *_args: None,
+    )
+
+    result = process_batch(source, tmp_path / "output", AnalysisConfig(), services=services)
+
+    assert result.success_count == 1
+
+
+def test_process_batch_rejects_unsupported_dolby_vision(tmp_path: Path) -> None:
+    source = tmp_path / "dolby.mov"
+    services = PipelineServices.defaults().replace(
+        scan_videos=lambda _: [source],
+        probe_media=lambda _: replace(_media(source), is_dolby_vision=True),
+    )
+
+    result = process_batch(source, tmp_path / "output", AnalysisConfig(), services=services)
+
+    assert result.failure_count == 1
+    assert "Dolby Vision" in (result.results[0].error or "")
 
 
 def test_process_batch_removes_clip_that_fails_verification(tmp_path: Path) -> None:
