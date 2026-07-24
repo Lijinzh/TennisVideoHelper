@@ -2,8 +2,9 @@ from pathlib import Path
 from subprocess import CompletedProcess
 
 import numpy as np
+import soundfile as sf
 
-from tennis_video_helper.audio import detect_audio_events, extract_audio
+from tennis_video_helper.audio import detect_audio_events, extract_audio, load_audio
 from tennis_video_helper.config import AnalysisConfig
 
 
@@ -65,3 +66,13 @@ def test_extract_audio_uses_mono_pcm_and_configured_sample_rate(
     assert captured[captured.index("-ar") + 1] == "16000"
     assert captured[-1] == str(target)
 
+
+def test_load_audio_returns_samples_and_sample_rate(tmp_path: Path) -> None:
+    target = tmp_path / "audio.wav"
+    expected = np.array([0.0, 0.5, -0.5], dtype=np.float32)
+    sf.write(target, expected, 16_000, subtype="FLOAT")
+
+    samples, sample_rate = load_audio(target)
+
+    assert sample_rate == 16_000
+    assert np.allclose(samples, expected)

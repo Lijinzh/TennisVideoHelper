@@ -12,12 +12,17 @@ def test_parse_probe_payload_reads_video_audio_and_rotation(tmp_path: Path) -> N
             {
                 "codec_type": "video",
                 "codec_name": "hevc",
+                "profile": "Main 10",
                 "codec_tag_string": "hvc1",
                 "width": 1920,
                 "height": 1080,
                 "pix_fmt": "yuv420p10le",
                 "avg_frame_rate": "60000/1001",
+                "r_frame_rate": "60/1",
                 "color_transfer": "smpte2084",
+                "color_primaries": "bt2020",
+                "color_space": "bt2020nc",
+                "color_range": "tv",
                 "tags": {"rotate": "90"},
             },
             {
@@ -43,6 +48,36 @@ def test_parse_probe_payload_reads_video_audio_and_rotation(tmp_path: Path) -> N
     assert media.rotation == 90
     assert media.is_hdr10 is True
     assert media.is_dolby_vision is False
+    assert media.nominal_fps == 60.0
+    assert media.is_variable_frame_rate is False
+    assert media.color_primaries == "bt2020"
+    assert media.color_space == "bt2020nc"
+    assert media.color_range == "tv"
+    assert media.video_profile == "Main 10"
+
+
+def test_parse_probe_payload_marks_mixed_30_60_video_as_variable_frame_rate(
+    tmp_path: Path,
+) -> None:
+    payload = {
+        "streams": [
+            {
+                "codec_type": "video",
+                "codec_name": "hevc",
+                "width": 3840,
+                "height": 2160,
+                "avg_frame_rate": "1865700381/40026554",
+                "r_frame_rate": "30/1",
+            }
+        ],
+        "format": {"duration": "1333.0"},
+    }
+
+    media = parse_probe_payload(tmp_path / "mixed.mp4", payload)
+
+    assert media.fps > 46.0
+    assert media.nominal_fps == 30.0
+    assert media.is_variable_frame_rate is True
 
 
 def test_parse_probe_payload_detects_dolby_vision(tmp_path: Path) -> None:

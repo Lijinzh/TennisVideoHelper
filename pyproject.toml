@@ -3,13 +3,17 @@ name = "tennis-video-helper"
 version = "0.1.0"
 description = "使用音画融合自动筛选网球长回合并切分视频。"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "librosa>=0.11",
     "numpy>=2.0",
+    "opencv-python>=4.11",
     "scipy>=1.15",
     "soundfile>=0.13",
+    "torch>=2.7",
+    "torchvision>=0.22",
     "typer>=0.16",
+    "ultralytics>=8.3",
 ]
 
 [project.scripts]
@@ -30,3 +34,12 @@ packages = ["src/tennis_video_helper"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.uv.sources]
+torchvision = { index = "pytorch-cu128" }
+torch = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

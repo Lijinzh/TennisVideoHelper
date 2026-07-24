@@ -76,8 +76,12 @@ def parse_probe_payload(path: Path, payload: dict[str, Any]) -> MediaInfo:
     )
     format_info = payload.get("format", {})
     duration = _parse_float(format_info.get("duration"), default=0.0)
-    fps = _parse_frame_rate(
-        video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate")
+    fps = _parse_frame_rate(video_stream.get("avg_frame_rate"))
+    nominal_fps = _parse_frame_rate(video_stream.get("r_frame_rate"))
+    if fps <= 0:
+        fps = nominal_fps
+    is_variable_frame_rate = (
+        fps > 0 and nominal_fps > 0 and abs(fps - nominal_fps) > 0.2
     )
     rotation = _parse_rotation(video_stream)
     color_transfer = video_stream.get("color_transfer")
@@ -109,6 +113,12 @@ def parse_probe_payload(path: Path, payload: dict[str, Any]) -> MediaInfo:
         color_transfer=color_transfer,
         is_hdr10=is_hdr10,
         is_dolby_vision=is_dolby_vision,
+        nominal_fps=nominal_fps,
+        is_variable_frame_rate=is_variable_frame_rate,
+        color_primaries=video_stream.get("color_primaries"),
+        color_space=video_stream.get("color_space"),
+        color_range=video_stream.get("color_range"),
+        video_profile=video_stream.get("profile"),
     )
 
 
@@ -143,4 +153,3 @@ def _parse_rotation(video_stream: dict[str, Any]) -> int:
             except (TypeError, ValueError):
                 continue
     return 0
-

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import librosa
 import numpy as np
+import soundfile as sf
 from scipy.signal import find_peaks
 
 from tennis_video_helper.config import AnalysisConfig
@@ -102,3 +103,15 @@ def detect_audio_events(
         )
     return events
 
+
+def load_audio(path: Path) -> tuple[np.ndarray, int]:
+    """读取单声道 WAV，并返回浮点采样和采样率。"""
+
+    try:
+        samples, sample_rate = sf.read(path, dtype="float32", always_2d=False)
+    except (OSError, RuntimeError) as exc:
+        raise AudioAnalysisError(f"无法读取音频：{path}") from exc
+    mono = np.asarray(samples, dtype=np.float32)
+    if mono.ndim > 1:
+        mono = np.mean(mono, axis=1, dtype=np.float32)
+    return mono.reshape(-1), int(sample_rate)
