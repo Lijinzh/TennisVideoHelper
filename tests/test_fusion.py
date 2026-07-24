@@ -24,6 +24,16 @@ def test_fuse_events_gives_high_score_to_aligned_audio_and_visual() -> None:
     assert events[0].reason == "音画共同确认近端击球"
 
 
+def test_fuse_events_keeps_moderate_aligned_audio_and_pose_as_support() -> None:
+    events = fuse_events(
+        [_audio(1.0, 0.327)],
+        [_visual(1.05, 0.206)],
+        AnalysisConfig(),
+    )
+
+    assert events[0].confidence >= AnalysisConfig().rally_support_threshold
+
+
 def test_fuse_events_keeps_plausibly_timed_remote_audio_hits() -> None:
     audio = [_audio(1.0), _audio(2.2), _audio(3.4)]
     visual = [_visual(1.0)]
@@ -89,6 +99,36 @@ def test_build_rally_segments_uses_support_events_to_keep_confirmed_rally_connec
     assert segments[0].active_start == 15.42
     assert segments[0].active_end == 27.29
     assert segments[0].event_count == 7
+
+
+def test_build_rally_segments_keeps_joint_evidence_across_slow_return_gaps() -> None:
+    events = [
+        FusedEvent(206.3, 0.7, 0.2, 0.46, "音画支撑"),
+        FusedEvent(207.8, 0.8, 0.6, 0.80, "强确认"),
+        FusedEvent(210.2, 0.0, 1.0, 0.45, "动作支撑"),
+        FusedEvent(213.7, 0.6, 0.3, 0.50, "音画支撑"),
+        FusedEvent(215.1, 0.5, 1.0, 0.75, "强确认"),
+        FusedEvent(216.6, 0.7, 0.5, 0.70, "强确认"),
+        FusedEvent(218.9, 0.0, 1.0, 0.45, "动作支撑"),
+        FusedEvent(220.6, 0.5, 0.2, 0.50, "音画支撑"),
+        FusedEvent(222.1, 1.0, 1.0, 0.95, "强确认"),
+        FusedEvent(223.0, 0.6, 0.5, 0.65, "强确认"),
+        FusedEvent(225.1, 1.0, 1.0, 0.95, "强确认"),
+        FusedEvent(226.6, 0.7, 0.2, 0.50, "音画支撑"),
+        FusedEvent(229.0, 0.3, 0.2, 0.41, "音画支撑"),
+        FusedEvent(231.8, 0.7, 1.0, 0.85, "强确认"),
+        FusedEvent(235.1, 0.9, 0.2, 0.70, "强确认"),
+        FusedEvent(238.4, 0.9, 0.8, 0.90, "强确认"),
+        FusedEvent(241.8, 0.5, 0.2, 0.50, "音画支撑"),
+        FusedEvent(244.2, 0.6, 1.0, 0.80, "强确认"),
+        FusedEvent(247.6, 0.6, 1.0, 0.80, "强确认"),
+    ]
+
+    segments = build_rally_segments(events, 300.0, AnalysisConfig())
+
+    assert len(segments) == 1
+    assert segments[0].active_start == 206.3
+    assert segments[0].active_end == 247.6
 
 
 def test_build_rally_segments_does_not_start_rally_from_support_events_only() -> None:

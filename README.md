@@ -79,8 +79,10 @@ uv run tennis-video-helper analyze ".\网球" --output ".\精选输出" --limit-
 min_rally_duration: float = 10.0  # 最短有效对打时长，调大后只保留更长回合，调小后会输出更多短回合
 pre_roll: float = 2.0  # 回合开始前保留秒数，调大后准备动作更完整，调小后片段更紧凑
 post_roll: float = 3.0  # 回合结束后保留秒数，调大后收拍和反应更完整，调小后结束更紧凑
-end_silence: float = 3.0  # 多久没有可信击球后结束回合，调大后不易误断，调小后切分更敏感
+end_silence: float = 3.5  # 多久没有可信击球后结束回合，调大后不易误断慢速回球，调小后切分更敏感
 analysis_fps: int = 12  # 每秒分析帧数，调大后动作定位更细但更慢，调小后更快但可能漏掉快速挥拍
+aligned_audio_reliability: float = 0.9  # 音画对齐时声音证据可靠度，调大后更依赖声音，调小后更依赖动作
+aligned_visual_reliability: float = 0.85  # 音画对齐时动作证据可靠度，调大后更依赖挥拍动作，调小后更依赖声音
 fusion_threshold: float = 0.6  # 确认回合所需的强事件阈值，调大后更保守，调小后更容易把噪声当作击球
 rally_support_threshold: float = 0.4  # 强事件确认后维持回合的支撑阈值，调大后容易断开，调小后更容易粘连
 ```

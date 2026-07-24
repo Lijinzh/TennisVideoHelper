@@ -9,10 +9,12 @@ def test_default_config_matches_approved_design() -> None:
     assert config.min_rally_duration == 10.0
     assert config.pre_roll == 2.0
     assert config.post_roll == 3.0
-    assert config.end_silence == 3.0
+    assert config.end_silence == 3.5
     assert config.merge_gap == 1.5
     assert config.analysis_fps == 12
     assert config.audio_sample_rate == 22_050
+    assert config.aligned_audio_reliability == 0.9
+    assert config.aligned_visual_reliability == 0.85
     assert config.rally_support_threshold == 0.4
     assert config.encode_cq == 21
 
@@ -25,6 +27,8 @@ def test_default_config_matches_approved_design() -> None:
         ("audio_sample_rate", 0),
         ("audio_sensitivity", 0),
         ("visual_sensitivity", 0),
+        ("aligned_audio_reliability", 0),
+        ("aligned_visual_reliability", 1.1),
         ("rally_support_threshold", 0),
         ("fusion_threshold", 1.1),
         ("encode_cq", 52),

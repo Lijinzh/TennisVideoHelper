@@ -36,9 +36,15 @@ def fuse_events(
         if match_index is not None:
             visual_event = visual_events[match_index]
             matched_visual_indices.add(match_index)
+            audio_evidence = (
+                config.aligned_audio_reliability * audio_event.confidence
+            )
+            visual_evidence = (
+                config.aligned_visual_reliability * visual_event.confidence
+            )
             confidence = min(
                 1.0,
-                0.55 * audio_event.confidence + 0.45 * visual_event.confidence,
+                1.0 - (1.0 - audio_evidence) * (1.0 - visual_evidence),
             )
             reason = "音画共同确认近端击球"
             visual_confidence = visual_event.confidence
