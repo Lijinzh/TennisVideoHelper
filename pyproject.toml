@@ -8,6 +8,7 @@ dependencies = [
     "librosa>=0.11",
     "numpy>=2.0",
     "opencv-python>=4.11",
+    "pyside6>=6.11.1",
     "scipy>=1.15",
     "soundfile>=0.13",
     "torch>=2.7",
@@ -18,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 tennis-video-helper = "tennis_video_helper.cli:app"
+tennis-video-helper-gui = "tennis_video_helper.gui:main"
 
 [project.optional-dependencies]
 dev = [

@@ -43,6 +43,49 @@ def analyze(
         min=1.0,
         help="只分析每个视频开头的指定秒数，适合快速校准。",
     ),
+    min_rally_duration: float = typer.Option(
+        10.0,
+        "--min-rally-duration",
+        min=0.1,
+        help="最短有效对打时长；调大后只保留更长回合。",
+    ),
+    pre_roll: float = typer.Option(
+        2.0,
+        "--pre-roll",
+        min=0.0,
+        help="回合开始前保留秒数。",
+    ),
+    post_roll: float = typer.Option(
+        3.0,
+        "--post-roll",
+        min=0.0,
+        help="回合结束后保留秒数。",
+    ),
+    end_silence: float = typer.Option(
+        3.5,
+        "--end-silence",
+        min=0.1,
+        help="无可信击球后等待多久判定回合结束。",
+    ),
+    analysis_fps: int = typer.Option(
+        12,
+        "--analysis-fps",
+        min=1,
+        max=60,
+        help="每秒用于动作分析的画面帧数。",
+    ),
+    audio_sensitivity: float = typer.Option(
+        1.0,
+        "--audio-sensitivity",
+        min=0.1,
+        help="击球声音候选灵敏度。",
+    ),
+    visual_sensitivity: float = typer.Option(
+        1.0,
+        "--visual-sensitivity",
+        min=0.1,
+        help="挥拍动作候选灵敏度。",
+    ),
 ) -> None:
     """分析视频并通过 NVENC 输出持续时间较长的回合。"""
 
@@ -52,13 +95,27 @@ def analyze(
         typer.echo(f"运行环境检查失败：{exc}", err=True)
         raise typer.Exit(code=2) from exc
 
-    config = AnalysisConfig()
+    config = AnalysisConfig(
+        min_rally_duration=min_rally_duration,
+        pre_roll=pre_roll,
+        post_roll=post_roll,
+        end_silence=end_silence,
+        analysis_fps=analysis_fps,
+        audio_sensitivity=audio_sensitivity,
+        visual_sensitivity=visual_sensitivity,
+    )
     result = process_batch(
         input_path,
         output,
         config,
         limit_duration=limit_duration,
     )
+    if not result.results:
+        typer.echo(
+            "失败：没有找到支持的视频（支持 MP4、MOV、MKV 和 M4V）。",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     for video_result in result.results:
         if video_result.succeeded:
             verified = sum(record.verified for record in video_result.records)
