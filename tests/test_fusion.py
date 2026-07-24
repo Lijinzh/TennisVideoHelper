@@ -72,6 +72,34 @@ def test_build_rally_segments_keeps_twelve_second_sequence_with_buffers() -> Non
     assert segments[0].output_end == 16.0
 
 
+def test_build_rally_segments_uses_support_events_to_keep_confirmed_rally_connected() -> None:
+    events = [
+        FusedEvent(15.42, 0.8, 0.2, 0.51, "支撑事件"),
+        FusedEvent(17.71, 0.5, 0.3, 0.42, "支撑事件"),
+        FusedEvent(18.57, 1.0, 0.9, 0.95, "强确认事件"),
+        FusedEvent(20.81, 0.9, 0.4, 0.68, "强确认事件"),
+        FusedEvent(22.94, 1.0, 0.0, 0.85, "强确认事件"),
+        FusedEvent(25.35, 0.6, 0.1, 0.40, "支撑事件"),
+        FusedEvent(27.29, 0.0, 1.0, 0.45, "支撑事件"),
+    ]
+
+    segments = build_rally_segments(events, media_duration=30.0, config=AnalysisConfig())
+
+    assert len(segments) == 1
+    assert segments[0].active_start == 15.42
+    assert segments[0].active_end == 27.29
+    assert segments[0].event_count == 7
+
+
+def test_build_rally_segments_does_not_start_rally_from_support_events_only() -> None:
+    events = [
+        FusedEvent(float(timestamp), 0.0, 1.0, 0.45, "只有支撑事件")
+        for timestamp in range(1, 14, 2)
+    ]
+
+    assert build_rally_segments(events, 30.0, AnalysisConfig()) == []
+
+
 def test_build_rally_segments_filters_eight_second_sequence() -> None:
     events = [
         FusedEvent(float(timestamp), 1.0, 0.8, 0.9, "测试")

@@ -98,17 +98,21 @@ def build_rally_segments(
     media_duration: float,
     config: AnalysisConfig,
 ) -> list[RallySegment]:
-    """将可信事件序列转换为满足时长阈值的回合区间。"""
+    """用强事件确认回合，并用支撑事件维持满足时长阈值的连续区间。"""
 
-    accepted = sorted(
-        (event for event in events if event.confidence >= config.fusion_threshold),
+    supported = sorted(
+        (
+            event
+            for event in events
+            if event.confidence >= config.rally_support_threshold
+        ),
         key=lambda item: item.timestamp,
     )
-    if not accepted:
+    if not supported:
         return []
 
-    groups: list[list[FusedEvent]] = [[accepted[0]]]
-    for event in accepted[1:]:
+    groups: list[list[FusedEvent]] = [[supported[0]]]
+    for event in supported[1:]:
         if event.timestamp - groups[-1][-1].timestamp <= config.end_silence:
             groups[-1].append(event)
         else:
@@ -117,6 +121,11 @@ def build_rally_segments(
     groups = _merge_event_groups(groups, config.merge_gap)
     segments: list[RallySegment] = []
     for group in groups:
+        confirmation_count = sum(
+            event.confidence >= config.fusion_threshold for event in group
+        )
+        if confirmation_count < 2:
+            continue
         active_start = group[0].timestamp
         active_end = group[-1].timestamp
         active_duration = active_end - active_start

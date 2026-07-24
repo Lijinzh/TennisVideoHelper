@@ -17,6 +17,7 @@ class AnalysisConfig:
     audio_sensitivity: float = 1.0  # 声音候选灵敏度，调大后能检出更弱击球但背景球场误检会增加，调小后误检减少但可能漏掉远端或较轻的击球声
     visual_sensitivity: float = 1.0  # 挥拍动作灵敏度，调大后更容易识别轻微动作但空挥误检会增加，调小后判断更严格但可能漏掉幅度较小的回球
     fusion_threshold: float = 0.6  # 音画融合后判定可信事件的最低分数，调大后结果更保守但可能漏检，调小后召回率提高但背景噪声误检会增加
+    rally_support_threshold: float = 0.4  # 已有强事件确认回合后，允许维持连续性的最低分数，调大后误延续更少但长回合容易被打断，调小后更能连接漏检但可能把相邻活动粘连
     encode_cq: int = 21  # NVENC 恒定质量参数，数值调小后画质更高且文件更大，数值调大后文件更小但压缩痕迹更明显
 
     def __post_init__(self) -> None:
@@ -27,6 +28,7 @@ class AnalysisConfig:
             "audio_sample_rate",
             "audio_sensitivity",
             "visual_sensitivity",
+            "rally_support_threshold",
         )
         non_negative_fields = ("pre_roll", "post_roll", "merge_gap")
 
@@ -41,6 +43,8 @@ class AnalysisConfig:
         if not 0 < self.fusion_threshold <= 1:
             raise ValueError("fusion_threshold 必须在 (0, 1] 范围内")
 
+        if self.rally_support_threshold > self.fusion_threshold:
+            raise ValueError("rally_support_threshold 不能大于 fusion_threshold")
+
         if not 0 <= self.encode_cq <= 51:
             raise ValueError("encode_cq 必须在 [0, 51] 范围内")
-
