@@ -190,3 +190,101 @@ def test_process_batch_reports_monotonic_progress(tmp_path: Path) -> None:
     assert any(update.phase == "GPU 分析画面" for update in updates)
     assert updates[-1].current_video == source
     assert updates[-1].phase == "全部任务完成"
+
+
+def test_overwrite_replaces_old_result_only_after_success(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    output = tmp_path / "output"
+    old_output = output / source.stem
+    old_output.mkdir(parents=True)
+    (old_output / "old.txt").write_text("old", encoding="utf-8")
+
+    def export_clip(_media, _segment, target: Path, _config) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"new")
+
+    def write_reports(directory: Path, *_args) -> None:
+        (directory / "new.txt").write_text("new", encoding="utf-8")
+
+    services = PipelineServices(
+        scan_videos=lambda _: [source],
+        probe_media=lambda _: _media(source),
+        extract_audio=lambda _source, target, _sample_rate: target.touch(),
+        load_audio=lambda _: (np.zeros(100, dtype=np.float32), 22_050),
+        detect_audio_events=lambda *_args: [
+            AudioEvent(float(timestamp), 1.0, 10.0)
+            for timestamp in range(1, 14, 2)
+        ],
+        analyze_video=lambda *_args: [
+            VisualEvent(float(timestamp), 1.0, 1.0, 0.0)
+            for timestamp in range(1, 14, 2)
+        ],
+        export_clip=export_clip,
+        verify_clip=lambda *_args: (True, None),
+        write_reports=write_reports,
+    )
+
+    result = process_batch(
+        source,
+        output,
+        AnalysisConfig(overwrite_existing_output=True),
+        services=services,
+    )
+
+    assert result.success_count == 1
+    assert result.results[0].output_dir == old_output
+    assert not (old_output / "old.txt").exists()
+    assert (old_output / "new.txt").read_text(encoding="utf-8") == "new"
+    assert all(
+        record.path.parent == old_output / "clips"
+        for record in result.results[0].records
+    )
+    assert not (output / "source_2").exists()
+    assert not list(output.glob(".source.staging-*"))
+    assert not list(output.glob(".source.backup-*"))
+
+
+def test_overwrite_preserves_old_result_when_new_clip_fails_verification(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.mp4"
+    output = tmp_path / "output"
+    old_output = output / source.stem
+    old_output.mkdir(parents=True)
+    marker = old_output / "old.txt"
+    marker.write_text("keep", encoding="utf-8")
+
+    def export_clip(_media, _segment, target: Path, _config) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"invalid")
+
+    services = PipelineServices(
+        scan_videos=lambda _: [source],
+        probe_media=lambda _: _media(source),
+        extract_audio=lambda _source, target, _sample_rate: target.touch(),
+        load_audio=lambda _: (np.zeros(100, dtype=np.float32), 22_050),
+        detect_audio_events=lambda *_args: [
+            AudioEvent(float(timestamp), 1.0, 10.0)
+            for timestamp in range(1, 14, 2)
+        ],
+        analyze_video=lambda *_args: [
+            VisualEvent(float(timestamp), 1.0, 1.0, 0.0)
+            for timestamp in range(1, 14, 2)
+        ],
+        export_clip=export_clip,
+        verify_clip=lambda *_args: (False, "验证失败"),
+        write_reports=lambda *_args: None,
+    )
+
+    result = process_batch(
+        source,
+        output,
+        AnalysisConfig(overwrite_existing_output=True),
+        services=services,
+    )
+
+    assert result.failure_count == 1
+    assert "旧结果已保留" in (result.results[0].error or "")
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert not list(output.glob(".source.staging-*"))
+    assert not list(output.glob(".source.backup-*"))

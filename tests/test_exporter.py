@@ -57,6 +57,7 @@ def test_build_ffmpeg_command_preserves_resolution_and_frame_rate(tmp_path: Path
     )
 
     assert "hevc_nvenc" in command
+    assert command[command.index("-preset") + 1] == "p4"
     assert "-vf" not in command
     assert "-r" not in command
     assert command[command.index("-fps_mode:v:0") + 1] == "passthrough"

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import shutil
 import tempfile
+import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
@@ -198,84 +200,115 @@ def _process_video(
             f"检测到不支持的 Dolby Vision Profile，仅放行 HLG 兼容的 Profile 8.4：{source}"
         )
 
-    output_dir = _next_available_output_dir(output_root, source.stem)
-    clips_dir = output_dir / "clips"
+    output_dir, working_output_dir = _prepare_output_dir(
+        output_root,
+        source.stem,
+        overwrite=config.overwrite_existing_output,
+    )
+    clips_dir = working_output_dir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
     progress_callback(0.07, "并行分析声音与画面")
 
-    def report_visual_progress(fraction: float) -> None:
-        progress_callback(0.08 + min(1.0, max(0.0, fraction)) * 0.67, "GPU 分析画面")
-
-    with tempfile.TemporaryDirectory(prefix="tennis-video-helper-") as temporary:
-        audio_path = Path(temporary) / "audio.wav"
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="tennis-analysis") as executor:
-            audio_future = executor.submit(
-                _analyze_audio_track,
-                source,
-                audio_path,
-                config,
-                limit_duration,
-                services,
-            )
-            visual_future = executor.submit(
-                services.analyze_video,
-                source,
-                config,
-                limit_duration,
-                report_visual_progress,
-            )
-            audio_events = audio_future.result()
-            visual_events = visual_future.result()
-    progress_callback(0.76, "融合声音与动作")
-    fused_events = fuse_events(audio_events, visual_events, config)
-    effective_duration = (
-        min(media.duration, limit_duration)
-        if limit_duration is not None
-        else media.duration
-    )
-    segments = build_rally_segments(fused_events, effective_duration, config)
-    progress_callback(0.80, "导出精选片段")
-
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="tennis-export") as executor:
-        export_futures = {
-            executor.submit(
-                _export_and_verify_segment,
-                index,
-                segment,
-                clips_dir,
-                media,
-                config,
-                services,
-            ): index
-            for index, segment in enumerate(segments, start=1)
-        }
-        records = []
-        for completed_count, future in enumerate(as_completed(export_futures), start=1):
-            records.append(future.result())
+    try:
+        def report_visual_progress(fraction: float) -> None:
             progress_callback(
-                0.80 + 0.17 * completed_count / max(1, len(export_futures)),
-                f"导出精选片段 {completed_count}/{len(export_futures)}",
+                0.08 + min(1.0, max(0.0, fraction)) * 0.67,
+                "GPU 分析画面",
             )
-    records.sort(key=lambda record: record.index)
 
-    progress_callback(0.98, "生成分析报告")
-    services.write_reports(
-        output_dir,
-        media,
-        records,
-        audio_events,
-        visual_events,
-        fused_events,
-    )
-    _write_processing_log(
-        output_dir,
-        source,
-        len(audio_events),
-        len(visual_events),
-        len(fused_events),
-        records,
-    )
-    return VideoProcessResult(source, output_dir, tuple(records), None)
+        with tempfile.TemporaryDirectory(prefix="tennis-video-helper-") as temporary:
+            audio_path = Path(temporary) / "audio.wav"
+            with ThreadPoolExecutor(
+                max_workers=2,
+                thread_name_prefix="tennis-analysis",
+            ) as executor:
+                audio_future = executor.submit(
+                    _analyze_audio_track,
+                    source,
+                    audio_path,
+                    config,
+                    limit_duration,
+                    services,
+                )
+                visual_future = executor.submit(
+                    services.analyze_video,
+                    source,
+                    config,
+                    limit_duration,
+                    report_visual_progress,
+                )
+                audio_events = audio_future.result()
+                visual_events = visual_future.result()
+        progress_callback(0.76, "融合声音与动作")
+        fused_events = fuse_events(audio_events, visual_events, config)
+        effective_duration = (
+            min(media.duration, limit_duration)
+            if limit_duration is not None
+            else media.duration
+        )
+        segments = build_rally_segments(fused_events, effective_duration, config)
+        progress_callback(0.80, "导出精选片段")
+
+        with ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="tennis-export",
+        ) as executor:
+            export_futures = {
+                executor.submit(
+                    _export_and_verify_segment,
+                    index,
+                    segment,
+                    clips_dir,
+                    media,
+                    config,
+                    services,
+                ): index
+                for index, segment in enumerate(segments, start=1)
+            }
+            records = []
+            for completed_count, future in enumerate(
+                as_completed(export_futures),
+                start=1,
+            ):
+                records.append(future.result())
+                progress_callback(
+                    0.80 + 0.17 * completed_count / max(1, len(export_futures)),
+                    f"导出精选片段 {completed_count}/{len(export_futures)}",
+                )
+        records.sort(key=lambda record: record.index)
+        published_records = [
+            replace(record, path=output_dir / "clips" / record.path.name)
+            for record in records
+        ]
+        if config.overwrite_existing_output and any(
+            not record.verified for record in published_records
+        ):
+            raise RuntimeError("新结果包含验证失败的片段，旧结果已保留")
+
+        progress_callback(0.98, "生成分析报告")
+        services.write_reports(
+            working_output_dir,
+            media,
+            published_records,
+            audio_events,
+            visual_events,
+            fused_events,
+        )
+        _write_processing_log(
+            working_output_dir,
+            source,
+            len(audio_events),
+            len(visual_events),
+            len(fused_events),
+            published_records,
+        )
+        if working_output_dir != output_dir:
+            _replace_output_dir(working_output_dir, output_dir)
+        return VideoProcessResult(source, output_dir, tuple(published_records), None)
+    except Exception:
+        if working_output_dir != output_dir:
+            shutil.rmtree(working_output_dir, ignore_errors=True)
+        raise
 
 
 def _analyze_audio_track(
@@ -326,6 +359,42 @@ def _next_available_output_dir(output_root: Path, stem: str) -> Path:
         suffix += 1
     candidate.mkdir(parents=True)
     return candidate
+
+
+def _prepare_output_dir(
+    output_root: Path,
+    stem: str,
+    *,
+    overwrite: bool,
+) -> tuple[Path, Path]:
+    output_root.mkdir(parents=True, exist_ok=True)
+    if not overwrite:
+        output_dir = _next_available_output_dir(output_root, stem)
+        return output_dir, output_dir
+    output_dir = output_root / stem
+    working_dir = Path(
+        tempfile.mkdtemp(prefix=f".{stem}.staging-", dir=output_root)
+    )
+    return output_dir, working_dir
+
+
+def _replace_output_dir(working_dir: Path, output_dir: Path) -> None:
+    """成功完成后替换旧目录；替换失败时尽量恢复旧结果。"""
+
+    backup_dir: Path | None = None
+    if output_dir.exists():
+        backup_dir = output_dir.with_name(
+            f".{output_dir.name}.backup-{uuid.uuid4().hex}"
+        )
+        output_dir.replace(backup_dir)
+    try:
+        working_dir.replace(output_dir)
+    except Exception:
+        if backup_dir is not None and backup_dir.exists() and not output_dir.exists():
+            backup_dir.replace(output_dir)
+        raise
+    if backup_dir is not None:
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 def _clip_filename(index: int, segment: RallySegment) -> str:

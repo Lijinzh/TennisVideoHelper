@@ -1,6 +1,10 @@
 """集中管理用户可调的分析参数。"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable
+
+
+AccelerationCallback = Callable[[dict[str, object]], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +30,12 @@ class AnalysisConfig:
     inference_batch_size: int = 16  # 单次提交给 GPU 的分析帧数量，调大后通常能提高吞吐但增加显存占用，调小后显存更稳但 GPU 利用率降低
     require_gpu: bool = False  # 是否禁止 CPU 回退，开启后缺少 CUDA 会直接停止，关闭后会明确提示并使用 CPU 完成任务
     gpu_available: bool | None = None  # 运行时探测结果；None 表示由调用方保持原有 GPU 导出行为，CLI 会写入实际探测结果
+    overwrite_existing_output: bool = False  # 成功完成后是否替换同名视频的旧结果；失败或停止时保留旧结果
+    acceleration_callback: AccelerationCallback | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         positive_fields = (

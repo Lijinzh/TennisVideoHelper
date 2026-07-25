@@ -47,7 +47,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from tennis_video_helper.cli import PROGRESS_PREFIX
+from tennis_video_helper.cli import ACCELERATION_PREFIX, PROGRESS_PREFIX
 from tennis_video_helper.media import SUPPORTED_VIDEO_EXTENSIONS, scan_videos
 
 
@@ -76,6 +76,7 @@ class AnalysisFormValues:
     inference_precision: str = "fp16"
     inference_batch_size: int = 16
     require_gpu: bool = False
+    overwrite_existing_output: bool = True
 
 
 def build_analyze_arguments(values: AnalysisFormValues) -> list[str]:
@@ -111,6 +112,11 @@ def build_analyze_arguments(values: AnalysisFormValues) -> list[str]:
         "--progress-json",
     ]
     arguments.append("--require-gpu" if values.require_gpu else "--allow-cpu")
+    arguments.append(
+        "--overwrite-existing"
+        if values.overwrite_existing_output
+        else "--keep-existing"
+    )
     if values.limit_duration is not None:
         arguments.extend(["--limit-duration", _number(values.limit_duration)])
     return arguments
@@ -165,6 +171,18 @@ def parse_progress_line(line: str) -> dict[str, object] | None:
         return None
     try:
         payload = json.loads(line[len(PROGRESS_PREFIX) :])
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def parse_acceleration_line(line: str) -> dict[str, object] | None:
+    """解析后台上报的真实 GPU/CPU 加速状态。"""
+
+    if not line.startswith(ACCELERATION_PREFIX):
+        return None
+    try:
+        payload = json.loads(line[len(ACCELERATION_PREFIX) :])
     except json.JSONDecodeError:
         return None
     return payload if isinstance(payload, dict) else None
@@ -315,6 +333,7 @@ class MainWindow(QMainWindow):
         self._progress_percent = 0.0
         self._process_output_buffer = ""
         self._preview_path: Path | None = None
+        self._acceleration_status: dict[str, object] = {}
 
         self.elapsed_timer = QTimer(self)
         self.elapsed_timer.setInterval(1000)
@@ -454,6 +473,12 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.start_button, 2)
         button_row.addWidget(self.stop_button, 1)
         status_layout.addLayout(button_row)
+
+        self.acceleration_label = QLabel("GPU 加速：等待任务检查")
+        self.acceleration_label.setObjectName("accelerationStatus")
+        self.acceleration_label.setProperty("mode", "pending")
+        self.acceleration_label.setWordWrap(True)
+        status_layout.addWidget(self.acceleration_label)
         status_layout.addStretch(1)
 
         self.percent_label = QLabel("0%")
@@ -594,9 +619,15 @@ class MainWindow(QMainWindow):
         self.limit_minutes.setEnabled(False)
         self.limit_check.toggled.connect(self.limit_minutes.setEnabled)
         self.require_gpu = QCheckBox("缺少 GPU 时直接停止")
+        self.overwrite_existing_output = QCheckBox("覆盖同名旧结果")
+        self.overwrite_existing_output.setChecked(True)
+        self.overwrite_existing_output.setToolTip(
+            "新结果完整生成并验证成功后才替换旧结果；失败或停止不会删除旧结果。"
+        )
         limit_layout.addWidget(self.limit_check)
         limit_layout.addWidget(self.limit_minutes)
         limit_layout.addWidget(self.require_gpu)
+        limit_layout.addWidget(self.overwrite_existing_output)
         limit_layout.addStretch()
         hint = QLabel("适合快速试跑和调参；关闭后分析完整视频。")
         hint.setObjectName("parameterNote")
@@ -638,6 +669,7 @@ class MainWindow(QMainWindow):
             inference_precision=str(self.inference_precision.currentData()),
             inference_batch_size=self.inference_batch_size.value(),
             require_gpu=self.require_gpu.isChecked(),
+            overwrite_existing_output=self.overwrite_existing_output.isChecked(),
         )
 
     def _start_analysis(self) -> None:
@@ -663,6 +695,11 @@ class MainWindow(QMainWindow):
         self.log.clear()
         self._append_log(f"开始处理：{values.input_path}")
         self._append_log(f"输出目录：{values.output_path}")
+        self._append_log(
+            "同名结果：成功后覆盖旧结果"
+            if values.overwrite_existing_output
+            else "同名结果：保留旧结果并创建编号目录"
+        )
         self._append_log("正在检查 FFmpeg、NVENC 与 CUDA 环境……")
 
         environment = QProcessEnvironment.systemEnvironment()
@@ -676,6 +713,8 @@ class MainWindow(QMainWindow):
         self._started_at = time.monotonic()
         self._progress_percent = 0.0
         self._process_output_buffer = ""
+        self._acceleration_status = {}
+        self._set_acceleration_label("pending", "GPU 加速：正在检查……")
         self.progress.setValue(0)
         self.progress.setFormat("0.0%")
         self.percent_label.setText("0%")
@@ -727,12 +766,55 @@ class MainWindow(QMainWindow):
             self._handle_process_line(line.rstrip("\r"))
 
     def _handle_process_line(self, line: str) -> None:
+        acceleration = parse_acceleration_line(line)
+        if acceleration is not None:
+            self._apply_acceleration_status(acceleration)
+            return
         payload = parse_progress_line(line)
         if payload is not None:
             self._apply_progress(payload)
             return
         if line:
             self._append_log(line)
+
+    def _apply_acceleration_status(self, payload: dict[str, object]) -> None:
+        self._acceleration_status.update(payload)
+        status = self._acceleration_status
+        cuda_available = bool(status.get("cuda_available"))
+        nvenc_available = bool(status.get("nvenc_available"))
+        inference = str(status.get("inference_backend") or "检测中")
+        precision = str(status.get("precision") or "")
+        decoder = str(status.get("decoder") or "检测中")
+        encoder = str(status.get("encoder") or ("NVENC" if nvenc_available else "libx265"))
+        details = " · ".join(
+            part for part in (f"{inference} {precision}".strip(), decoder, encoder) if part
+        )
+
+        if cuda_available and nvenc_available:
+            mode = "enabled"
+            title = "GPU 加速：已启用"
+        elif cuda_available or nvenc_available:
+            mode = "partial"
+            title = "GPU 加速：部分启用"
+        else:
+            mode = "cpu"
+            title = "GPU 加速：未启用，已回退 CPU"
+        self._set_acceleration_label(mode, f"{title}\n{details}")
+        device_name = status.get("device_name")
+        self.acceleration_label.setToolTip(str(device_name or title))
+        if self.process.state() != QProcess.ProcessState.NotRunning:
+            if cuda_available and nvenc_available:
+                self.status_badge.setText("●  GPU 处理中")
+            elif cuda_available or nvenc_available:
+                self.status_badge.setText("●  CPU/GPU 混合处理")
+            else:
+                self.status_badge.setText("●  CPU 处理中")
+
+    def _set_acceleration_label(self, mode: str, text: str) -> None:
+        self.acceleration_label.setText(text)
+        self.acceleration_label.setProperty("mode", mode)
+        self.acceleration_label.style().unpolish(self.acceleration_label)
+        self.acceleration_label.style().polish(self.acceleration_label)
 
     def _apply_progress(self, payload: dict[str, object]) -> None:
         try:
@@ -769,7 +851,7 @@ class MainWindow(QMainWindow):
         self._set_running(False)
         if self._stopping:
             self.status_badge.setText("●  已停止")
-            self._append_log("任务已停止。再次运行时会自动创建新的输出子目录。")
+            self._append_log("任务已停止；已有成功结果不会被覆盖。")
         elif exit_code == 0:
             self.status_badge.setText("●  处理完成")
             self._progress_percent = 100.0
@@ -796,7 +878,7 @@ class MainWindow(QMainWindow):
         self.input_edit.setEnabled(not running)
         self.output_edit.setEnabled(not running)
         if running:
-            self.status_badge.setText("●  GPU 处理中")
+            self.status_badge.setText("●  正在处理")
             self.progress.setRange(0, 1000)
         else:
             self.progress.setRange(0, 1000)
@@ -1070,6 +1152,30 @@ QLabel#mutedLabel { color: #858a91; }
 QLabel#currentVideo { color: #c6cbd1; font-size: 12px; }
 QLabel#percentLabel { color: #b9f45a; font-size: 42px; font-weight: 700; }
 QLabel#phaseLabel { color: #f2f4f5; font-size: 16px; font-weight: 600; }
+QLabel#accelerationStatus {
+    background: #111418;
+    border: 1px solid #30353c;
+    border-radius: 8px;
+    color: #aeb4bc;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 7px 9px;
+}
+QLabel#accelerationStatus[mode="enabled"] {
+    background: #16210f;
+    border-color: #5d8529;
+    color: #b9f45a;
+}
+QLabel#accelerationStatus[mode="partial"] {
+    background: #241f0e;
+    border-color: #8d7427;
+    color: #f2cf62;
+}
+QLabel#accelerationStatus[mode="cpu"] {
+    background: #291616;
+    border-color: #834040;
+    color: #ff9e9e;
+}
 QLabel#metricLabel { color: #7f858d; font-size: 11px; }
 QLabel#metricValue {
     color: #f2f4f5;

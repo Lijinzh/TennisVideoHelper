@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 import typer
@@ -14,6 +15,16 @@ from tennis_video_helper.config import AnalysisConfig
 from tennis_video_helper.pipeline import ProgressUpdate, process_batch
 
 PROGRESS_PREFIX = "TVH_PROGRESS "
+ACCELERATION_PREFIX = "TVH_ACCELERATION "
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCapabilities:
+    """运行时实际可用的 CUDA 与编码能力。"""
+
+    cuda_available: bool
+    nvenc_available: bool
+    device_name: str | None
 
 app = typer.Typer(
     name="tennis-video-helper",
@@ -112,6 +123,11 @@ def analyze(
         "--require-gpu/--allow-cpu",
         help="缺少 CUDA 时停止，或明确警告后回退 CPU。",
     ),
+    overwrite_existing: bool = typer.Option(
+        False,
+        "--overwrite-existing/--keep-existing",
+        help="新结果成功后替换同名旧结果，或保留并创建带编号的新目录。",
+    ),
     progress_json: bool = typer.Option(
         False,
         "--progress-json",
@@ -120,8 +136,16 @@ def analyze(
 ) -> None:
     """分析视频并通过 NVENC 输出持续时间较长的回合。"""
 
+    progress_lock = threading.Lock()
+
+    def emit_acceleration(payload: dict[str, object]) -> None:
+        if not progress_json:
+            return
+        with progress_lock:
+            typer.echo(_format_acceleration_line(payload))
+
     try:
-        gpu_available = _check_runtime(require_gpu=require_gpu)
+        runtime = _check_runtime(require_gpu=require_gpu)
     except RuntimeError as exc:
         typer.echo(f"运行环境检查失败：{exc}", err=True)
         raise typer.Exit(code=2) from exc
@@ -138,9 +162,20 @@ def analyze(
         inference_precision=inference_precision,
         inference_batch_size=inference_batch_size,
         require_gpu=require_gpu,
-        gpu_available=gpu_available,
+        gpu_available=runtime.nvenc_available,
+        overwrite_existing_output=overwrite_existing,
+        acceleration_callback=emit_acceleration,
     )
-    progress_lock = threading.Lock()
+    emit_acceleration(
+        {
+            "cuda_available": runtime.cuda_available,
+            "nvenc_available": runtime.nvenc_available,
+            "device_name": runtime.device_name,
+            "inference_backend": "检测中" if runtime.cuda_available else "CPU",
+            "decoder": "检测中" if runtime.cuda_available else "OpenCV",
+            "encoder": "NVENC" if runtime.nvenc_available else "libx265",
+        }
+    )
 
     def emit_progress(update: ProgressUpdate) -> None:
         if not progress_json:
@@ -182,7 +217,7 @@ def analyze(
         raise typer.Exit(code=1)
 
 
-def _check_runtime(*, require_gpu: bool = False) -> bool:
+def _check_runtime(*, require_gpu: bool = False) -> RuntimeCapabilities:
     for executable in ("ffmpeg", "ffprobe"):
         if shutil.which(executable) is None:
             raise RuntimeError(f"找不到 {executable}，请先安装并加入 PATH")
@@ -201,17 +236,23 @@ def _check_runtime(*, require_gpu: bool = False) -> bool:
         import torch
     except ImportError as exc:
         raise RuntimeError("PyTorch CUDA 依赖尚未安装") from exc
-    gpu_available = bool(torch.cuda.is_available()) and "hevc_nvenc" in encoder_check.stdout
-    if require_gpu and not gpu_available:
+    cuda_available = bool(torch.cuda.is_available())
+    nvenc_available = "hevc_nvenc" in encoder_check.stdout
+    device_name = torch.cuda.get_device_name(0) if cuda_available else None
+    if require_gpu and not (cuda_available and nvenc_available):
         raise RuntimeError("当前没有显卡驱动或可用 CUDA/NVENC，且已指定 --require-gpu")
-    if not gpu_available:
-        if "libx265" not in encoder_check.stdout:
-            raise RuntimeError("当前没有可用 GPU，FFmpeg 也不支持 CPU 编码器 libx265")
+    if not nvenc_available and "libx265" not in encoder_check.stdout:
+        raise RuntimeError("当前没有可用 NVENC，FFmpeg 也不支持 CPU 编码器 libx265")
+    if not cuda_available and not nvenc_available:
         typer.echo(
             "警告：当前没有显卡驱动或可用 CUDA/NVENC，已自动回退 CPU 处理；速度会显著降低。",
             err=True,
         )
-    return gpu_available
+    elif not cuda_available:
+        typer.echo("警告：CUDA 不可用，姿态推理已回退 CPU；视频仍使用 NVENC 编码。", err=True)
+    elif not nvenc_available:
+        typer.echo("警告：NVENC 不可用，视频编码已回退 libx265；姿态推理仍使用 CUDA。", err=True)
+    return RuntimeCapabilities(cuda_available, nvenc_available, device_name)
 
 
 def _format_progress_line(update: ProgressUpdate) -> str:
@@ -223,6 +264,14 @@ def _format_progress_line(update: ProgressUpdate) -> str:
         "video_total": update.video_total,
     }
     return PROGRESS_PREFIX + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _format_acceleration_line(payload: dict[str, object]) -> str:
+    return ACCELERATION_PREFIX + json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 if __name__ == "__main__":

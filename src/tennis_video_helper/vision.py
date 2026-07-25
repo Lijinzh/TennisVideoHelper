@@ -168,6 +168,16 @@ def analyze_video(
         input_shape=_model_input_shape(path),
     )
     using_tensorrt = resolved_model_path.suffix.lower() == ".engine"
+    _report_acceleration(
+        config,
+        cuda_available=cuda_available,
+        inference_backend=(
+            "TensorRT"
+            if using_tensorrt
+            else ("PyTorch CUDA" if cuda_available else "CPU")
+        ),
+        precision=(precision.upper() if cuda_available else "FP32"),
+    )
     model = YOLO(str(resolved_model_path))
     if cuda_available:
         try:
@@ -188,10 +198,14 @@ def analyze_video(
             if not isinstance(exc, NvdecUnavailable):
                 raise
             LOGGER.warning("NVDEC 不可用，已回退到 OpenCV 解码：%s", exc)
+            _report_acceleration(config, decoder="OpenCV")
         else:
             LOGGER.info("已启用 NVIDIA NVDEC GPU 解码")
+            _report_acceleration(config, decoder="NVDEC")
             return events
 
+    if not cuda_available:
+        _report_acceleration(config, decoder="OpenCV")
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
         raise VisualAnalysisError(f"无法打开视频：{path}")
@@ -623,6 +637,14 @@ def _configure_torch_runtime(torch_module, cuda_available: bool) -> None:
     matmul = getattr(cuda_backend, "matmul", None)
     if matmul is not None:
         matmul.allow_tf32 = True
+
+
+def _report_acceleration(config: AnalysisConfig, **payload: object) -> None:
+    """把实际选中的推理和解码后端上报给 CLI/UI。"""
+
+    callback = getattr(config, "acceleration_callback", None)
+    if callback is not None:
+        callback(payload)
 
 
 def _capture_timestamp(

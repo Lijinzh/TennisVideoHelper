@@ -19,6 +19,7 @@ from tennis_video_helper.gui import (
     format_clock,
     parse_output_path,
     parse_paths,
+    parse_acceleration_line,
     parse_progress_line,
     process_ids_match,
 )
@@ -50,6 +51,7 @@ def test_build_analyze_arguments_includes_paths_and_parameters() -> None:
     assert arguments[arguments.index("--batch-size") + 1] == "16"
     assert "--progress-json" in arguments
     assert "--allow-cpu" in arguments
+    assert "--overwrite-existing" in arguments
     assert arguments[arguments.index("--limit-duration") + 1] == "300"
 
 
@@ -198,7 +200,7 @@ def test_reference_layout_balances_status_and_fills_log_card() -> None:
     log_card = window.log.parentWidget()
     main_gaps = [
         window.percent_label.geometry().top()
-        - window.start_button.geometry().bottom()
+        - window.acceleration_label.geometry().bottom()
         - 1,
         window.progress.geometry().top() - window.phase_label.geometry().bottom() - 1,
         window.task_summary_label.geometry().top()
@@ -276,6 +278,39 @@ def test_progress_payload_updates_visible_status() -> None:
     assert window.phase_label.text() == "GPU 分析画面"
     assert window.video_count_label.text() == "第 2/4 个视频"
     assert window.eta_label.text() != "正在估算"
+
+    window.close()
+    app.processEvents()
+
+
+def test_acceleration_payload_shows_actual_gpu_backend() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+
+    payload = parse_acceleration_line(
+        'TVH_ACCELERATION {"cuda_available":true,"nvenc_available":true,'
+        '"device_name":"RTX 4060","inference_backend":"TensorRT",'
+        '"precision":"FP16","decoder":"NVDEC","encoder":"NVENC"}'
+    )
+    assert payload is not None
+    window._apply_acceleration_status(payload)
+
+    assert "GPU 加速：已启用" in window.acceleration_label.text()
+    assert "TensorRT FP16" in window.acceleration_label.text()
+    assert "NVDEC" in window.acceleration_label.text()
+    assert window.acceleration_label.property("mode") == "enabled"
+
+    window._apply_acceleration_status(
+        {
+            "cuda_available": False,
+            "nvenc_available": False,
+            "inference_backend": "CPU",
+            "decoder": "OpenCV",
+            "encoder": "libx265",
+        }
+    )
+    assert "已回退 CPU" in window.acceleration_label.text()
+    assert window.acceleration_label.property("mode") == "cpu"
 
     window.close()
     app.processEvents()
