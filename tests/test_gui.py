@@ -185,6 +185,51 @@ def test_portrait_workspace_fits_primary_controls_without_scrolling() -> None:
     app.processEvents()
 
 
+def test_reference_layout_balances_status_and_fills_log_card() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.resize(1100, 760)
+    window.show()
+    QTest.qWait(80)
+    app.processEvents()
+
+    status_panel = window.start_button.parentWidget()
+    workbench = status_panel.parentWidget()
+    log_card = window.log.parentWidget()
+    main_gaps = [
+        window.percent_label.geometry().top()
+        - window.start_button.geometry().bottom()
+        - 1,
+        window.progress.geometry().top() - window.phase_label.geometry().bottom() - 1,
+        window.task_summary_label.geometry().top()
+        - max(
+            window.elapsed_label.geometry().bottom(),
+            window.eta_label.geometry().bottom(),
+        )
+        - 1,
+    ]
+
+    compact_workbench_height = workbench.height()
+    compact_log_height = window.log.height()
+    assert compact_workbench_height >= 352
+    assert workbench.geometry().top() <= 100
+    assert max(main_gaps) - min(main_gaps) <= 2
+    assert window.log.height() >= 115
+    assert window.log.geometry().top() <= 45
+    assert log_card.height() - window.log.geometry().bottom() - 1 <= 20
+
+    window.resize(1440, 920)
+    QTest.qWait(80)
+    app.processEvents()
+
+    assert window.workbench_card.height() > compact_workbench_height
+    assert window.log.height() > compact_log_height
+    assert window.page_scroll.verticalScrollBar().maximum() == 0
+
+    window.close()
+    app.processEvents()
+
+
 def test_parameter_tiles_and_large_buttons_do_not_overlap() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()

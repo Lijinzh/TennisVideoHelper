@@ -338,14 +338,19 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(20, 8, 20, 8)
         root.setSpacing(8)
+        self.root_layout = root
 
         root.addLayout(self._build_header())
-        root.addWidget(self._build_workbench_card())
-        root.addWidget(self._build_parameter_card())
+        self.workbench_card = self._build_workbench_card()
+        root.addWidget(self.workbench_card)
+        self.parameter_card = self._build_parameter_card()
+        root.addWidget(self.parameter_card)
+        root.addStretch(1)
 
         self._set_running(False)
         QTimer.singleShot(0, self._refresh_input_preview)
         QTimer.singleShot(0, self._show_initial_view)
+        QTimer.singleShot(0, self._fit_workbench_height)
         QTimer.singleShot(0, lambda: _apply_windows_dark_frame(self))
 
     def _show_initial_view(self) -> None:
@@ -353,6 +358,26 @@ class MainWindow(QMainWindow):
 
         self.start_button.setFocus()
         self.page_scroll.verticalScrollBar().setValue(0)
+
+    def _fit_workbench_height(self) -> None:
+        """以紧凑布局为下限，把额外高度留给日志和状态间距。"""
+
+        margins = self.root_layout.contentsMargins()
+        fixed_height = (
+            margins.top()
+            + margins.bottom()
+            + self.root_layout.itemAt(0).sizeHint().height()
+            + self.parameter_card.sizeHint().height()
+            + self.root_layout.spacing() * 2
+        )
+        target = self.page_scroll.viewport().height() - fixed_height
+        self.workbench_card.setFixedHeight(max(352, min(400, target)))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        if hasattr(self, "workbench_card") and hasattr(self, "parameter_card"):
+            QTimer.singleShot(0, self._fit_workbench_height)
+            QTimer.singleShot(60, self._fit_workbench_height)
 
     def _build_header(self) -> QHBoxLayout:
         layout = QHBoxLayout()
@@ -379,6 +404,7 @@ class MainWindow(QMainWindow):
     def _build_workbench_card(self) -> QFrame:
         card = QFrame()
         card.setObjectName("workbenchCard")
+        card.setMinimumHeight(352)
         layout = QHBoxLayout(card)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(18)
@@ -414,7 +440,7 @@ class MainWindow(QMainWindow):
         status_panel.setMaximumWidth(350)
         status_layout = QVBoxLayout(status_panel)
         status_layout.setContentsMargins(18, 18, 18, 18)
-        status_layout.setSpacing(12)
+        status_layout.setSpacing(6)
 
         button_row = QHBoxLayout()
         self.start_button = QPushButton("开始筛选")
@@ -428,6 +454,7 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.start_button, 2)
         button_row.addWidget(self.stop_button, 1)
         status_layout.addLayout(button_row)
+        status_layout.addStretch(1)
 
         self.percent_label = QLabel("0%")
         self.percent_label.setObjectName("percentLabel")
@@ -436,6 +463,7 @@ class MainWindow(QMainWindow):
         self.phase_label.setWordWrap(True)
         status_layout.addWidget(self.percent_label)
         status_layout.addWidget(self.phase_label)
+        status_layout.addStretch(1)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
@@ -444,6 +472,7 @@ class MainWindow(QMainWindow):
         self.progress.setTextVisible(True)
         self.progress.setFixedHeight(22)
         status_layout.addWidget(self.progress)
+        status_layout.addStretch(1)
 
         timing_grid = QGridLayout()
         timing_grid.setHorizontalSpacing(18)
@@ -461,12 +490,12 @@ class MainWindow(QMainWindow):
         timing_grid.addWidget(self.elapsed_label, 1, 0)
         timing_grid.addWidget(self.eta_label, 1, 1)
         status_layout.addLayout(timing_grid)
+        status_layout.addStretch(1)
 
         self.task_summary_label = QLabel("选择视频后即可开始 GPU 筛选")
         self.task_summary_label.setObjectName("taskSummary")
         self.task_summary_label.setWordWrap(True)
         status_layout.addWidget(self.task_summary_label)
-        status_layout.addStretch()
         layout.addWidget(status_panel)
 
         utility_column = QVBoxLayout()
@@ -584,8 +613,8 @@ class MainWindow(QMainWindow):
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("任务开始后，这里会显示环境检查和每个视频的处理结果。")
         self.log.setMaximumBlockCount(2000)
-        self.log.setMinimumHeight(82)
-        self.log.setMaximumHeight(120)
+        self.log.setMinimumHeight(90)
+        self.log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.log)
         return card
 
