@@ -2,6 +2,7 @@ import sys
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from tennis_video_helper.vision import (
     PoseDetection,
@@ -75,7 +76,67 @@ def test_estimate_global_motion_detects_shared_frame_translation() -> None:
     assert abs(dy - 2) < 1.0
 
 
-def test_analyze_video_uses_current_fp16_quantize_option(monkeypatch, tmp_path) -> None:
+def test_analyze_video_batches_cuda_fp16_predictions(monkeypatch, tmp_path) -> None:
+    prediction_calls: list[tuple[int, int | str, bool]] = []
+
+    class FakeCapture:
+        def __init__(self, _path: str) -> None:
+            self.frames = [
+                np.zeros((120, 160, 3), dtype=np.uint8),
+                np.zeros((120, 160, 3), dtype=np.uint8),
+                np.zeros((120, 160, 3), dtype=np.uint8),
+                np.zeros((120, 160, 3), dtype=np.uint8),
+            ]
+
+        def isOpened(self) -> bool:
+            return True
+
+        def get(self, _property: int) -> float:
+            return 30.0
+
+        def read(self):
+            return (True, self.frames.pop(0)) if self.frames else (False, None)
+
+        def release(self) -> None:
+            return None
+
+    class FakeModel:
+        def __init__(self, _model_path: str) -> None:
+            return None
+
+    def fake_predict_batch(
+        _model,
+        frames,
+        *,
+        torch_module,
+        device,
+        use_fp16,
+    ):
+        prediction_calls.append((len(frames), device, use_fp16))
+        return [SimpleNamespace(boxes=None, keypoints=None) for _ in frames]
+
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True)))
+    monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(YOLO=FakeModel))
+    monkeypatch.setattr("tennis_video_helper.vision.cv2.VideoCapture", FakeCapture)
+    monkeypatch.setattr("tennis_video_helper.vision._predict_pose_batch", fake_predict_batch)
+
+    analyze_video(
+        tmp_path / "sample.mp4",
+        SimpleNamespace(
+            analysis_fps=30,
+            inference_batch_size=2,
+            inference_backend="torch",
+            inference_precision="fp16",
+            require_gpu=False,
+        ),
+    )
+
+    assert [size for size, _device, _fp16 in prediction_calls] == [2, 2]
+    assert all(device == 0 for _size, device, _fp16 in prediction_calls)
+    assert all(use_fp16 is True for _size, _device, use_fp16 in prediction_calls)
+
+
+def test_analyze_video_falls_back_to_cpu_explicitly(monkeypatch, tmp_path) -> None:
     prediction_options: dict[str, object] = {}
 
     class FakeCapture:
@@ -98,18 +159,44 @@ def test_analyze_video_uses_current_fp16_quantize_option(monkeypatch, tmp_path) 
         def __init__(self, _model_path: str) -> None:
             return None
 
-        def predict(self, _frame, **options):
+        def predict(self, frames, **options):
             prediction_options.update(options)
-            return [SimpleNamespace(boxes=None, keypoints=None)]
+            return [SimpleNamespace(boxes=None, keypoints=None) for _ in frames]
 
-    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True)))
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False)))
     monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(YOLO=FakeModel))
     monkeypatch.setattr("tennis_video_helper.vision.cv2.VideoCapture", FakeCapture)
 
-    analyze_video(tmp_path / "sample.mp4", SimpleNamespace(analysis_fps=12))
+    analyze_video(
+        tmp_path / "sample.mp4",
+        SimpleNamespace(
+            analysis_fps=30,
+            inference_batch_size=16,
+            inference_backend="torch",
+            inference_precision="fp16",
+            require_gpu=False,
+        ),
+    )
 
-    assert prediction_options["quantize"] == 16
-    assert "half" not in prediction_options
+    assert prediction_options["device"] == "cpu"
+    assert prediction_options["quantize"] is None
+
+
+def test_analyze_video_rejects_cpu_when_gpu_is_required(monkeypatch, tmp_path) -> None:
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False)))
+    monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(YOLO=object))
+
+    with pytest.raises(Exception, match="CUDA"):
+        analyze_video(
+            tmp_path / "sample.mp4",
+            SimpleNamespace(
+                analysis_fps=30,
+                inference_batch_size=16,
+                inference_backend="torch",
+                inference_precision="fp16",
+                require_gpu=True,
+            ),
+        )
 
 
 def test_analyze_video_uses_real_frame_timestamps_for_variable_fps(monkeypatch, tmp_path) -> None:
@@ -155,17 +242,25 @@ def test_analyze_video_uses_real_frame_timestamps_for_variable_fps(monkeypatch, 
         def __init__(self, _model_path: str) -> None:
             return None
 
-        def predict(self, _frame, **_options):
-            return [object()]
+        def predict(self, frames, **_options):
+            return [object() for _ in frames]
 
     monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True)))
     monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(YOLO=FakeModel))
     monkeypatch.setattr("tennis_video_helper.vision.cv2.VideoCapture", FakeCapture)
+    monkeypatch.setattr(
+        "tennis_video_helper.vision._predict_pose_batch",
+        lambda model, frames, **_options: model.predict(frames),
+    )
     monkeypatch.setattr("tennis_video_helper.vision._result_to_detections", lambda _result: next(poses))
 
     events = analyze_video(
         tmp_path / "variable-fps.mp4",
-        SimpleNamespace(analysis_fps=60, visual_sensitivity=1.0),
+        SimpleNamespace(
+            analysis_fps=60,
+            visual_sensitivity=1.0,
+            inference_backend="torch",
+        ),
     )
 
     assert len(events) == 1

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -141,13 +142,23 @@ def _process_video(
 
     with tempfile.TemporaryDirectory(prefix="tennis-video-helper-") as temporary:
         audio_path = Path(temporary) / "audio.wav"
-        services.extract_audio(source, audio_path, config.audio_sample_rate)
-        samples, sample_rate = services.load_audio(audio_path)
-        if limit_duration is not None:
-            samples = samples[: int(limit_duration * sample_rate)]
-        audio_events = services.detect_audio_events(samples, sample_rate, config)
-
-    visual_events = services.analyze_video(source, config, limit_duration)
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="tennis-analysis") as executor:
+            audio_future = executor.submit(
+                _analyze_audio_track,
+                source,
+                audio_path,
+                config,
+                limit_duration,
+                services,
+            )
+            visual_future = executor.submit(
+                services.analyze_video,
+                source,
+                config,
+                limit_duration,
+            )
+            audio_events = audio_future.result()
+            visual_events = visual_future.result()
     fused_events = fuse_events(audio_events, visual_events, config)
     effective_duration = (
         min(media.duration, limit_duration)
@@ -156,29 +167,20 @@ def _process_video(
     )
     segments = build_rally_segments(fused_events, effective_duration, config)
 
-    records: list[ClipRecord] = []
-    for index, segment in enumerate(segments, start=1):
-        target = clips_dir / _clip_filename(index, segment)
-        try:
-            services.export_clip(media, segment, target, config)
-            verified, error = services.verify_clip(
-                target,
-                media,
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="tennis-export") as executor:
+        export_futures = [
+            executor.submit(
+                _export_and_verify_segment,
+                index,
                 segment,
+                clips_dir,
+                media,
+                config,
+                services,
             )
-        except Exception as exc:  # noqa: BLE001 - 记录单片段错误并继续
-            verified, error = False, str(exc)
-        if not verified:
-            target.unlink(missing_ok=True)
-        records.append(
-            ClipRecord(
-                index=index,
-                path=target,
-                segment=segment,
-                verified=verified,
-                error=error,
-            )
-        )
+            for index, segment in enumerate(segments, start=1)
+        ]
+        records = [future.result() for future in export_futures]
 
     services.write_reports(
         output_dir,
@@ -197,6 +199,45 @@ def _process_video(
         records,
     )
     return VideoProcessResult(source, output_dir, tuple(records), None)
+
+
+def _analyze_audio_track(
+    source: Path,
+    audio_path: Path,
+    config: AnalysisConfig,
+    limit_duration: float | None,
+    services: PipelineServices,
+) -> list[AudioEvent]:
+    services.extract_audio(source, audio_path, config.audio_sample_rate)
+    samples, sample_rate = services.load_audio(audio_path)
+    if limit_duration is not None:
+        samples = samples[: int(limit_duration * sample_rate)]
+    return services.detect_audio_events(samples, sample_rate, config)
+
+
+def _export_and_verify_segment(
+    index: int,
+    segment: RallySegment,
+    clips_dir: Path,
+    media: MediaInfo,
+    config: AnalysisConfig,
+    services: PipelineServices,
+) -> ClipRecord:
+    target = clips_dir / _clip_filename(index, segment)
+    try:
+        services.export_clip(media, segment, target, config)
+        verified, error = services.verify_clip(target, media, segment)
+    except Exception as exc:  # noqa: BLE001 - 记录单片段错误并继续
+        verified, error = False, str(exc)
+    if not verified:
+        target.unlink(missing_ok=True)
+    return ClipRecord(
+        index=index,
+        path=target,
+        segment=segment,
+        verified=verified,
+        error=error,
+    )
 
 
 def _next_available_output_dir(output_root: Path, stem: str) -> Path:

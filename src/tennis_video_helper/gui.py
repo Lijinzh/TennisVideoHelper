@@ -15,6 +15,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPix
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
@@ -56,6 +57,10 @@ class AnalysisFormValues:
     audio_sensitivity: float
     visual_sensitivity: float
     limit_duration: float | None
+    inference_backend: str = "auto"
+    inference_precision: str = "fp16"
+    inference_batch_size: int = 16
+    require_gpu: bool = False
 
 
 def build_analyze_arguments(values: AnalysisFormValues) -> list[str]:
@@ -82,7 +87,14 @@ def build_analyze_arguments(values: AnalysisFormValues) -> list[str]:
         _number(values.audio_sensitivity),
         "--visual-sensitivity",
         _number(values.visual_sensitivity),
+        "--backend",
+        values.inference_backend,
+        "--precision",
+        values.inference_precision,
+        "--batch-size",
+        str(values.inference_batch_size),
     ]
+    arguments.append("--require-gpu" if values.require_gpu else "--allow-cpu")
     if values.limit_duration is not None:
         arguments.extend(["--limit-duration", _number(values.limit_duration)])
     return arguments
@@ -90,6 +102,14 @@ def build_analyze_arguments(values: AnalysisFormValues) -> list[str]:
 
 def _number(value: float) -> str:
     return f"{value:g}"
+
+
+def _cuda_available() -> bool:
+    try:
+        import torch
+    except ImportError:
+        return False
+    return bool(torch.cuda.is_available())
 
 
 def parse_paths(input_text: str, output_text: str) -> tuple[Path, Path]:
@@ -129,7 +149,7 @@ class ParameterTile(QFrame):
         self,
         title: str,
         description: str,
-        control: QDoubleSpinBox | QSpinBox,
+        control: QWidget,
     ) -> None:
         super().__init__()
         self.setObjectName("parameterTile")
@@ -264,6 +284,14 @@ class MainWindow(QMainWindow):
         self.analysis_fps = _int_spin(12, 1, 30, " FPS")
         self.audio_sensitivity = _double_spin(1.0, 0.1, 3.0, " ×")
         self.visual_sensitivity = _double_spin(1.0, 0.1, 3.0, " ×")
+        self.inference_backend = QComboBox()
+        self.inference_backend.addItem("自动（TensorRT 优先）", "auto")
+        self.inference_backend.addItem("TensorRT", "tensorrt")
+        self.inference_backend.addItem("PyTorch CUDA", "torch")
+        self.inference_precision = QComboBox()
+        self.inference_precision.addItem("FP16", "fp16")
+        self.inference_precision.addItem("FP32", "fp32")
+        self.inference_batch_size = _int_spin(16, 1, 64, " 帧")
 
         specs = [
             ("最短回合", "调大：只留更长回合；调小：短回合会增多。", self.min_rally),
@@ -273,6 +301,9 @@ class MainWindow(QMainWindow):
             ("画面分析率", "调大：动作更细但更慢；8 GB 显存建议 8–12。", self.analysis_fps),
             ("声音灵敏度", "调大：弱击球更易检出；背景声音误检会增加。", self.audio_sensitivity),
             ("动作灵敏度", "调大：轻微挥拍更易检出；空挥误检会增加。", self.visual_sensitivity),
+            ("GPU 后端", "自动模式优先使用缓存的 TensorRT，并在不可用时回退 PyTorch。", self.inference_backend),
+            ("推理精度", "FP16 默认更快；FP32 更稳但速度较慢。", self.inference_precision),
+            ("GPU 批量", "RTX 4060 8 GB 推荐 16；过大可能增加显存压力。", self.inference_batch_size),
         ]
         for index, (title, note, control) in enumerate(specs):
             grid.addWidget(ParameterTile(title, note, control), index // 4, index % 4)
@@ -285,8 +316,10 @@ class MainWindow(QMainWindow):
         self.limit_minutes = _double_spin(5.0, 0.1, 180.0, " 分钟")
         self.limit_minutes.setEnabled(False)
         self.limit_check.toggled.connect(self.limit_minutes.setEnabled)
+        self.require_gpu = QCheckBox("缺少 GPU 时直接停止")
         limit_layout.addWidget(self.limit_check)
         limit_layout.addWidget(self.limit_minutes)
+        limit_layout.addWidget(self.require_gpu)
         limit_layout.addStretch()
         hint = QLabel("适合快速试跑和调参；关闭后分析完整视频。")
         hint.setObjectName("parameterNote")
@@ -346,6 +379,10 @@ class MainWindow(QMainWindow):
             audio_sensitivity=self.audio_sensitivity.value(),
             visual_sensitivity=self.visual_sensitivity.value(),
             limit_duration=limit,
+            inference_backend=str(self.inference_backend.currentData()),
+            inference_precision=str(self.inference_precision.currentData()),
+            inference_batch_size=self.inference_batch_size.value(),
+            require_gpu=self.require_gpu.isChecked(),
         )
 
     def _start_analysis(self) -> None:
@@ -357,6 +394,16 @@ class MainWindow(QMainWindow):
         if not values.input_path.exists():
             QMessageBox.warning(self, "路径无效", "请选择存在的视频或文件夹。")
             return
+        if not values.require_gpu and not _cuda_available():
+            answer = QMessageBox.question(
+                self,
+                "确认 CPU 回退",
+                "当前没有显卡驱动或可用 CUDA，将自动回退 CPU 处理，速度会显著降低。是否继续？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
 
         self.log.clear()
         self._append_log(f"开始处理：{values.input_path}")

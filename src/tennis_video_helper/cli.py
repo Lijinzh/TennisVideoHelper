@@ -86,11 +86,33 @@ def analyze(
         min=0.1,
         help="挥拍动作候选灵敏度。",
     ),
+    inference_backend: str = typer.Option(
+        "auto",
+        "--backend",
+        help="推理后端：auto、torch 或 tensorrt。",
+    ),
+    inference_precision: str = typer.Option(
+        "fp16",
+        "--precision",
+        help="推理精度：fp16、fp32；int8 仅在完成校准后可用。",
+    ),
+    inference_batch_size: int = typer.Option(
+        16,
+        "--batch-size",
+        min=1,
+        max=64,
+        help="GPU 推理批量；RTX 4060 8 GB 建议 16。",
+    ),
+    require_gpu: bool = typer.Option(
+        False,
+        "--require-gpu/--allow-cpu",
+        help="缺少 CUDA 时停止，或明确警告后回退 CPU。",
+    ),
 ) -> None:
     """分析视频并通过 NVENC 输出持续时间较长的回合。"""
 
     try:
-        _check_runtime()
+        gpu_available = _check_runtime(require_gpu=require_gpu)
     except RuntimeError as exc:
         typer.echo(f"运行环境检查失败：{exc}", err=True)
         raise typer.Exit(code=2) from exc
@@ -103,6 +125,11 @@ def analyze(
         analysis_fps=analysis_fps,
         audio_sensitivity=audio_sensitivity,
         visual_sensitivity=visual_sensitivity,
+        inference_backend=inference_backend,
+        inference_precision=inference_precision,
+        inference_batch_size=inference_batch_size,
+        require_gpu=require_gpu,
+        gpu_available=gpu_available,
     )
     result = process_batch(
         input_path,
@@ -137,7 +164,7 @@ def analyze(
         raise typer.Exit(code=1)
 
 
-def _check_runtime() -> None:
+def _check_runtime(*, require_gpu: bool = False) -> bool:
     for executable in ("ffmpeg", "ffprobe"):
         if shutil.which(executable) is None:
             raise RuntimeError(f"找不到 {executable}，请先安装并加入 PATH")
@@ -149,15 +176,24 @@ def _check_runtime() -> None:
         encoding="utf-8",
         errors="replace",
     )
-    if encoder_check.returncode != 0 or "hevc_nvenc" not in encoder_check.stdout:
-        raise RuntimeError("当前 FFmpeg 不支持 hevc_nvenc")
+    if encoder_check.returncode != 0:
+        raise RuntimeError("无法读取 FFmpeg 编码器列表")
 
     try:
         import torch
     except ImportError as exc:
         raise RuntimeError("PyTorch CUDA 依赖尚未安装") from exc
-    if not torch.cuda.is_available():
-        raise RuntimeError("PyTorch 未检测到 CUDA 显卡")
+    gpu_available = bool(torch.cuda.is_available()) and "hevc_nvenc" in encoder_check.stdout
+    if require_gpu and not gpu_available:
+        raise RuntimeError("当前没有显卡驱动或可用 CUDA/NVENC，且已指定 --require-gpu")
+    if not gpu_available:
+        if "libx265" not in encoder_check.stdout:
+            raise RuntimeError("当前没有可用 GPU，FFmpeg 也不支持 CPU 编码器 libx265")
+        typer.echo(
+            "警告：当前没有显卡驱动或可用 CUDA/NVENC，已自动回退 CPU 处理；速度会显著降低。",
+            err=True,
+        )
+    return gpu_available
 
 
 if __name__ == "__main__":

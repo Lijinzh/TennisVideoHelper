@@ -46,6 +46,18 @@ def test_fuse_events_keeps_plausibly_timed_remote_audio_hits() -> None:
     assert events[1].reason == "时间间隔合理的远端击球候选"
 
 
+def test_fuse_events_keeps_first_remote_hit_with_next_hit_and_visual_context() -> None:
+    events = fuse_events(
+        [_audio(1.0), _audio(2.2)],
+        [_visual(3.0)],
+        AnalysisConfig(),
+    )
+
+    first_audio_event = next(event for event in events if event.timestamp == 1.0)
+    assert first_audio_event.confidence >= AnalysisConfig().rally_support_threshold
+    assert first_audio_event.reason == "时间间隔合理的远端击球候选"
+
+
 def test_fuse_events_marks_isolated_background_audio_as_low_confidence() -> None:
     events = fuse_events([_audio(5.0, 0.7)], [], AnalysisConfig())
 

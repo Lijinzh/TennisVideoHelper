@@ -19,8 +19,13 @@ class AnalysisConfig:
     aligned_audio_reliability: float = 0.9  # 音画时间对齐时声音证据的可靠度，调大后弱击球声更容易维持回合但环境声影响增加，调小后更依赖人体动作
     aligned_visual_reliability: float = 0.85  # 音画时间对齐时挥拍证据的可靠度，调大后动作对回合延续贡献更大但空挥风险增加，调小后更依赖击球声音
     fusion_threshold: float = 0.6  # 音画融合后判定可信事件的最低分数，调大后结果更保守但可能漏检，调小后召回率提高但背景噪声误检会增加
-    rally_support_threshold: float = 0.4  # 已有强事件确认回合后，允许维持连续性的最低分数，调大后误延续更少但长回合容易被打断，调小后更能连接漏检但可能把相邻活动粘连
+    rally_support_threshold: float = 0.38  # 已有强事件确认回合后，允许维持连续性的最低分数；为容纳不同 GPU 解码后端约 0.02 的置信度波动而保留小幅余量
     encode_cq: int = 21  # NVENC 恒定质量参数，数值调小后画质更高且文件更大，数值调大后文件更小但压缩痕迹更明显
+    inference_backend: str = "auto"  # 姿态推理后端，auto 会优先使用最快的可用 GPU 后端，torch 强制使用 PyTorch，tensorrt 强制要求 TensorRT
+    inference_precision: str = "fp16"  # 推理精度，fp16 是默认高速高精度模式，int8 速度更高但必须经过真实素材校准，fp32 最稳妥但更慢
+    inference_batch_size: int = 16  # 单次提交给 GPU 的分析帧数量，调大后通常能提高吞吐但增加显存占用，调小后显存更稳但 GPU 利用率降低
+    require_gpu: bool = False  # 是否禁止 CPU 回退，开启后缺少 CUDA 会直接停止，关闭后会明确提示并使用 CPU 完成任务
+    gpu_available: bool | None = None  # 运行时探测结果；None 表示由调用方保持原有 GPU 导出行为，CLI 会写入实际探测结果
 
     def __post_init__(self) -> None:
         positive_fields = (
@@ -31,6 +36,7 @@ class AnalysisConfig:
             "audio_sensitivity",
             "visual_sensitivity",
             "rally_support_threshold",
+            "inference_batch_size",
         )
         non_negative_fields = ("pre_roll", "post_roll", "merge_gap")
 
@@ -57,3 +63,9 @@ class AnalysisConfig:
 
         if not 0 <= self.encode_cq <= 51:
             raise ValueError("encode_cq 必须在 [0, 51] 范围内")
+
+        if self.inference_backend not in {"auto", "torch", "tensorrt"}:
+            raise ValueError("inference_backend 必须是 auto、torch 或 tensorrt")
+
+        if self.inference_precision not in {"fp16", "int8", "fp32"}:
+            raise ValueError("inference_precision 必须是 fp16、int8 或 fp32")

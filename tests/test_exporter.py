@@ -78,6 +78,19 @@ def test_build_ffmpeg_command_uses_main10_for_hdr10(tmp_path: Path) -> None:
     assert command[command.index("-profile:v") + 1] == "main10"
 
 
+def test_build_ffmpeg_command_falls_back_to_cpu_encoder(tmp_path: Path) -> None:
+    command = build_ffmpeg_command(
+        _media(tmp_path),
+        _segment(),
+        tmp_path / "cpu.mp4",
+        AnalysisConfig(gpu_available=False),
+    )
+
+    assert command[command.index("-c:v") + 1] == "libx265"
+    assert command[command.index("-crf") + 1] == "21"
+    assert "hevc_nvenc" not in command
+
+
 def test_build_ffmpeg_command_preserves_rotation_metadata(tmp_path: Path) -> None:
     media = replace(_media(tmp_path), rotation=90)
 
@@ -128,7 +141,7 @@ def test_export_clip_removes_partial_staging_file_after_ffmpeg_failure(
 
     monkeypatch.setattr("tennis_video_helper.exporter.subprocess.run", fail_after_partial_write)
 
-    with pytest.raises(ExportError, match="NVENC 输出失败"):
+    with pytest.raises(ExportError, match="视频输出失败"):
         export_clip(_media(tmp_path), _segment(), target, AnalysisConfig())
 
     assert not target.exists()

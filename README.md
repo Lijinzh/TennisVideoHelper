@@ -34,6 +34,14 @@ ffmpeg -hide_banner -encoders | Select-String "hevc_nvenc"
 uv sync --extra dev
 ```
 
+基础安装使用 PyTorch CUDA，并在 TensorRT 或 NVDEC 不可用时保持可运行。RTX 20/30/40/50 系列建议安装最高性能可选组件：
+
+```powershell
+uv sync --extra dev --extra gpu-max
+```
+
+`gpu-max` 会安装 NVIDIA PyNvVideoCodec、TensorRT、ONNX 和 ModelOpt，首次下载约 2 GB。首次使用 `auto`/`tensorrt` 后端时会构建本机专用 FP16 引擎并缓存到 `~/.cache/tennis-video-helper/engines`，通常需要数分钟；以后直接复用缓存。
+
 首次同步需要下载 CUDA 版 PyTorch，文件较大。如果网络读取容易超时，可以只为当前 PowerShell 会话提高 uv 超时：
 
 ```powershell
@@ -89,6 +97,31 @@ uv run tennis-video-helper analyze ".\网球" --output ".\精选输出"
 uv run tennis-video-helper analyze ".\网球" --output ".\精选输出" --limit-duration 300
 ```
 
+最高性能模式（默认就是这些参数）：
+
+```powershell
+uv run tennis-video-helper analyze ".\网球" --output ".\精选输出" --backend auto --precision fp16 --batch-size 16
+```
+
+- `auto`：优先 TensorRT，引擎构建/加载失败时回退批量 PyTorch CUDA。
+- `torch`：强制使用批量 PyTorch CUDA，适合排查 TensorRT 差异。
+- `tensorrt`：强制使用 TensorRT；依赖或引擎构建失败会明确停止。
+- `--require-gpu`：没有 CUDA/NVENC 时停止；默认 `--allow-cpu` 会明确警告并回退 CPU 推理和 `libx265` 导出。
+- INT8 当前故意不自动启用：必须先用真实网球素材校准并验证长回合召回率，避免为了速度引入漏检。
+
+程序会优先使用 NVDEC 在 GPU 上顺序解码、旋转、缩放和抽样；复杂可变帧率视频会用 PTS 校准保持时间线。若 PyNvVideoCodec、驱动或视频格式不兼容，会自动回退 OpenCV 跳帧解码。
+
+本机 RTX 4060 Laptop GPU 实测（仅视觉分析，同一模型与阈值）：
+
+| 样本 | 原始实现 | 优化后 TensorRT + NVDEC | 加速 |
+|---|---:|---:|---:|
+| 1080p，前 60 秒 | 63.48 秒 | 3.02 秒 | 21.0× |
+| 4K，前 15 秒 | 36.62 秒 | 2.92 秒 | 12.5× |
+
+以上为已缓存 TensorRT FP16 引擎后的热启动结果；首次运行还会包含一次性的引擎构建时间。与优化后的批量 PyTorch/OpenCV 路径相比，同两段素材仍分别达到 8.48× 和 9.11× 加速。回合边界验证误差分别为 0.060 秒和 0.183 秒，均低于 ±0.5 秒目标。
+
+AMD XDNA NPU 目前未默认启用：本机驱动低于当前 Ryzen AI 运行时要求，且尚未证明能让端到端流程再提升至少 5%。GPU 路径已覆盖解码、预处理和姿态推理；NPU 只会在后续有可重复净收益时作为独立可选插件加入。
+
 ## 可调参数
 
 参数集中在 [`src/tennis_video_helper/config.py`](src/tennis_video_helper/config.py)。每个参数后面都有中文注释，说明参数用途，以及调大或调小后的实际效果和误检风险。
@@ -104,7 +137,11 @@ analysis_fps: int = 12  # 每秒分析帧数，调大后动作定位更细但更
 aligned_audio_reliability: float = 0.9  # 音画对齐时声音证据可靠度，调大后更依赖声音，调小后更依赖动作
 aligned_visual_reliability: float = 0.85  # 音画对齐时动作证据可靠度，调大后更依赖挥拍动作，调小后更依赖声音
 fusion_threshold: float = 0.6  # 确认回合所需的强事件阈值，调大后更保守，调小后更容易把噪声当作击球
-rally_support_threshold: float = 0.4  # 强事件确认后维持回合的支撑阈值，调大后容易断开，调小后更容易粘连
+rally_support_threshold: float = 0.38  # 强事件确认后维持回合的支撑阈值，并容纳不同 GPU 解码后端的小幅置信度波动
+inference_backend: str = "auto"  # 自动优先 TensorRT，失败时回退批量 PyTorch CUDA
+inference_precision: str = "fp16"  # 默认 FP16；INT8 在完成真实素材校准前不会启用
+inference_batch_size: int = 16  # RTX 4060 8 GB 的默认批量
+require_gpu: bool = False  # False 时缺少显卡会明确警告并回退 CPU
 ```
 
 修改参数后不需要重新锁定依赖，直接重新运行分析命令即可。

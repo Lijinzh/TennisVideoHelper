@@ -40,6 +40,10 @@ def test_build_analyze_arguments_includes_paths_and_parameters() -> None:
     assert str(values.output_path) in arguments
     assert arguments[arguments.index("--min-rally-duration") + 1] == "15"
     assert arguments[arguments.index("--analysis-fps") + 1] == "10"
+    assert arguments[arguments.index("--backend") + 1] == "auto"
+    assert arguments[arguments.index("--precision") + 1] == "fp16"
+    assert arguments[arguments.index("--batch-size") + 1] == "16"
+    assert "--allow-cpu" in arguments
     assert arguments[arguments.index("--limit-duration") + 1] == "300"
 
 

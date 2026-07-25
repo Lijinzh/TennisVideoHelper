@@ -27,7 +27,8 @@ def fuse_events(
     matched_visual_indices: set[int] = set()
     previous_audio_time: float | None = None
 
-    for audio_event in sorted(audio_events, key=lambda item: item.timestamp):
+    ordered_audio_events = sorted(audio_events, key=lambda item: item.timestamp)
+    for audio_index, audio_event in enumerate(ordered_audio_events):
         match_index = _nearest_visual_index(
             audio_event.timestamp,
             visual_events,
@@ -55,13 +56,24 @@ def fuse_events(
                 if previous_audio_time is not None
                 else None
             )
+            next_interval = (
+                ordered_audio_events[audio_index + 1].timestamp - audio_event.timestamp
+                if audio_index + 1 < len(ordered_audio_events)
+                else None
+            )
+            has_plausible_neighbor = any(
+                candidate is not None
+                and PLAUSIBLE_HIT_INTERVAL[0]
+                <= candidate
+                <= PLAUSIBLE_HIT_INTERVAL[1]
+                for candidate in (interval, next_interval)
+            )
             has_visual_context = any(
                 abs(visual.timestamp - audio_event.timestamp) <= config.end_silence
                 for visual in visual_events
             )
             if (
-                interval is not None
-                and PLAUSIBLE_HIT_INTERVAL[0] <= interval <= PLAUSIBLE_HIT_INTERVAL[1]
+                has_plausible_neighbor
                 and has_visual_context
             ):
                 confidence = min(0.85, 0.65 * audio_event.confidence + 0.2)

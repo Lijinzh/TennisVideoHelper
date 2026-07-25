@@ -15,8 +15,12 @@ def test_default_config_matches_approved_design() -> None:
     assert config.audio_sample_rate == 22_050
     assert config.aligned_audio_reliability == 0.9
     assert config.aligned_visual_reliability == 0.85
-    assert config.rally_support_threshold == 0.4
+    assert config.rally_support_threshold == 0.38
     assert config.encode_cq == 21
+    assert config.inference_backend == "auto"
+    assert config.inference_precision == "fp16"
+    assert config.inference_batch_size == 16
+    assert config.require_gpu is False
 
 
 @pytest.mark.parametrize(
@@ -32,6 +36,7 @@ def test_default_config_matches_approved_design() -> None:
         ("rally_support_threshold", 0),
         ("fusion_threshold", 1.1),
         ("encode_cq", 52),
+        ("inference_batch_size", 0),
     ],
 )
 def test_config_rejects_invalid_values(field: str, value: float) -> None:
@@ -42,3 +47,15 @@ def test_config_rejects_invalid_values(field: str, value: float) -> None:
 def test_config_rejects_support_threshold_above_confirmation_threshold() -> None:
     with pytest.raises(ValueError, match="rally_support_threshold"):
         AnalysisConfig(rally_support_threshold=0.7, fusion_threshold=0.6)
+
+
+@pytest.mark.parametrize("value", ["invalid", "onnx"])
+def test_config_rejects_unknown_inference_backend(value: str) -> None:
+    with pytest.raises(ValueError, match="inference_backend"):
+        AnalysisConfig(inference_backend=value)
+
+
+@pytest.mark.parametrize("value", ["invalid", "bf16"])
+def test_config_rejects_unknown_inference_precision(value: str) -> None:
+    with pytest.raises(ValueError, match="inference_precision"):
+        AnalysisConfig(inference_precision=value)

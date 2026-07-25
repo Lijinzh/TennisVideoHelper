@@ -25,6 +25,15 @@ tennis-video-helper-gui = "tennis_video_helper.gui:main"
 dev = [
     "pytest>=8.4",
 ]
+gpu-max = [
+    "nvidia-modelopt[onnx]>=0.44",
+    "onnx>=1.12,<2",
+    "onnxruntime-gpu==1.22.0 ; sys_platform == 'win32'",
+    "onnxslim>=0.1.82",
+    "pynvvideocodec>=2.1",
+    "tensorrt-cu12!=10.2.0,>=10.13",
+    "tensorrt-cu12-libs==11.1.0.106",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -40,6 +49,13 @@ addopts = "-ra"
 [tool.uv.sources]
 torchvision = { index = "pytorch-cu128" }
 torch = { index = "pytorch-cu128" }
+nvidia-modelopt = { index = "nvidia" }
+tensorrt-cu12-libs = { index = "nvidia" }
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.cn/"
+explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu128"

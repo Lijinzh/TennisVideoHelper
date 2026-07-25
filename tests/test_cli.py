@@ -20,7 +20,7 @@ def test_cli_builds_analysis_config_from_options(tmp_path, monkeypatch) -> None:
     source.touch()
     captured = {}
 
-    monkeypatch.setattr(cli, "_check_runtime", lambda: None)
+    monkeypatch.setattr(cli, "_check_runtime", lambda **_kwargs: True)
 
     def fake_process_batch(input_path, output, config, *, limit_duration=None):
         captured["input_path"] = input_path
@@ -52,6 +52,13 @@ def test_cli_builds_analysis_config_from_options(tmp_path, monkeypatch) -> None:
             "1.2",
             "--visual-sensitivity",
             "0.8",
+            "--backend",
+            "torch",
+            "--precision",
+            "fp32",
+            "--batch-size",
+            "8",
+            "--require-gpu",
             "--limit-duration",
             "120",
         ],
@@ -66,11 +73,16 @@ def test_cli_builds_analysis_config_from_options(tmp_path, monkeypatch) -> None:
     assert config.analysis_fps == 8
     assert config.audio_sensitivity == 1.2
     assert config.visual_sensitivity == 0.8
+    assert config.inference_backend == "torch"
+    assert config.inference_precision == "fp32"
+    assert config.inference_batch_size == 8
+    assert config.require_gpu is True
+    assert config.gpu_available is True
     assert captured["limit_duration"] == 120.0
 
 
 def test_cli_fails_when_no_supported_videos_are_found(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(cli, "_check_runtime", lambda: None)
+    monkeypatch.setattr(cli, "_check_runtime", lambda **_kwargs: True)
     monkeypatch.setattr(cli, "process_batch", lambda *_args, **_kwargs: BatchResult(()))
 
     result = runner.invoke(app, ["analyze", str(tmp_path)])

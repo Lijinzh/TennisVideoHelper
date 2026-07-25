@@ -8,6 +8,7 @@ htmlcov/
 # 本地模型和媒体文件
 *.pt
 *.onnx
+*.engine
 *.wav
 网球/
 精选输出/
@@ -18,4 +19,3 @@ output/
 .vscode/
 .DS_Store
 Thumbs.db
-

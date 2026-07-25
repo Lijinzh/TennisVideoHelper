@@ -49,18 +49,40 @@ def build_ffmpeg_command(
             "0:v:0",
             "-map",
             "0:a?",
-            "-c:v",
-            "hevc_nvenc",
-            "-preset",
-            "p6",
-            "-tune",
-            "hq",
-            "-rc",
-            "vbr",
-            "-cq",
-            str(config.encode_cq),
-            "-b:v",
-            "0",
+        ]
+    )
+    if config.gpu_available is False:
+        command.extend(
+            [
+                "-c:v",
+                "libx265",
+                "-preset",
+                "medium",
+                "-crf",
+                str(config.encode_cq),
+                "-tag:v",
+                "hvc1",
+            ]
+        )
+    else:
+        command.extend(
+            [
+                "-c:v",
+                "hevc_nvenc",
+                "-preset",
+                "p6",
+                "-tune",
+                "hq",
+                "-rc",
+                "vbr",
+                "-cq",
+                str(config.encode_cq),
+                "-b:v",
+                "0",
+            ]
+        )
+    command.extend(
+        [
             "-fps_mode:v:0",
             "passthrough",
             "-enc_time_base:v:0",
@@ -153,7 +175,7 @@ def export_clip(
             )
         staging_target.replace(target)
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        raise ExportError(f"NVENC 输出失败：{target}") from exc
+        raise ExportError(f"视频输出失败：{target}") from exc
     finally:
         encoded_target.unlink(missing_ok=True)
         staging_target.unlink(missing_ok=True)
