@@ -285,10 +285,12 @@ class MainWindow(QMainWindow):
         self.audio_sensitivity = _double_spin(1.0, 0.1, 3.0, " ×")
         self.visual_sensitivity = _double_spin(1.0, 0.1, 3.0, " ×")
         self.inference_backend = QComboBox()
+        self.inference_backend.setMinimumHeight(32)
         self.inference_backend.addItem("自动（TensorRT 优先）", "auto")
         self.inference_backend.addItem("TensorRT", "tensorrt")
         self.inference_backend.addItem("PyTorch CUDA", "torch")
         self.inference_precision = QComboBox()
+        self.inference_precision.setMinimumHeight(32)
         self.inference_precision.addItem("FP16", "fp16")
         self.inference_precision.addItem("FP32", "fp32")
         self.inference_batch_size = _int_spin(16, 1, 64, " 帧")
@@ -577,6 +579,7 @@ def _double_spin(
     control.setValue(value)
     control.setSuffix(suffix)
     control.setMinimumWidth(105)
+    control.setMinimumHeight(32)
     return control
 
 
@@ -586,6 +589,7 @@ def _int_spin(value: int, minimum: int, maximum: int, suffix: str) -> QSpinBox:
     control.setValue(value)
     control.setSuffix(suffix)
     control.setMinimumWidth(105)
+    control.setMinimumHeight(32)
     return control
 
 
@@ -658,7 +662,7 @@ QFrame#card, QFrame#actionCard {
 QFrame#actionCard { background: rgba(20, 22, 24, 0.98); }
 QLabel#sectionTitle { color: #f3f4f5; font-size: 14px; font-weight: 700; }
 QLabel#fieldLabel { color: #aeb2b8; font-weight: 600; }
-QLineEdit, QPlainTextEdit, QDoubleSpinBox, QSpinBox {
+QLineEdit, QPlainTextEdit, QDoubleSpinBox, QSpinBox, QComboBox {
     color: #f1f2f3;
     background: #101215;
     border: 1px solid #30343a;
@@ -666,7 +670,17 @@ QLineEdit, QPlainTextEdit, QDoubleSpinBox, QSpinBox {
     padding: 8px 10px;
     selection-background-color: #6f9935;
 }
-QLineEdit:focus, QPlainTextEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus {
+QDoubleSpinBox, QSpinBox, QComboBox {
+    padding: 4px 8px;
+}
+QDoubleSpinBox QLineEdit, QSpinBox QLineEdit {
+    color: #f1f2f3;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+}
+QLineEdit:focus, QPlainTextEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {
     border: 1px solid #94c84a;
 }
 QPlainTextEdit {

@@ -110,3 +110,26 @@ def test_failed_process_start_restores_idle_ui() -> None:
     assert "启动失败" in window.status_badge.text()
     window.close()
     app.processEvents()
+
+
+def test_parameter_spin_boxes_keep_text_area_visible() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    for control in (
+        window.min_rally,
+        window.pre_roll,
+        window.post_roll,
+        window.end_silence,
+        window.analysis_fps,
+        window.audio_sensitivity,
+        window.visual_sensitivity,
+        window.inference_batch_size,
+    ):
+        assert control.text()
+        assert control.lineEdit().height() >= control.fontMetrics().height()
+
+    window.close()
+    app.processEvents()

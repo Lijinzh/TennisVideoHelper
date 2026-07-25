@@ -72,7 +72,12 @@ def iter_nvdec_batches(
         next_analysis_timestamp = 0.0
         reached_limit = False
         while source_index < total_frames and not reached_limit:
-            decoded_frames = decoder.get_batch_frames(decode_batch_size)
+            request_size = _decode_request_size(
+                source_index,
+                total_frames,
+                decode_batch_size,
+            )
+            decoded_frames = decoder.get_batch_frames(request_size)
             if not decoded_frames:
                 break
             if first_pts is None:
@@ -138,6 +143,16 @@ def iter_nvdec_batches(
             )
     except Exception as exc:  # noqa: BLE001 - 解码期异常统一转换为可回退错误
         raise NvdecUnavailable(f"NVDEC 解码失败：{exc}") from exc
+
+
+def _decode_request_size(
+    source_index: int,
+    total_frames: int,
+    preferred_batch_size: int,
+) -> int:
+    """限制最后一次解码请求，避免访问视频结尾之后的帧索引。"""
+
+    return min(preferred_batch_size, max(0, total_frames - source_index))
 
 
 def _import_pynvvideocodec(torch_module):
