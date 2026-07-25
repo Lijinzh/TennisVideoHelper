@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 import shutil
 import tempfile
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -133,6 +134,7 @@ def analyze_video(
     *,
     model_path: str = "yolo11n-pose.pt",
     limit_duration: float | None = None,
+    progress_callback: Callable[[float], None] | None = None,
 ) -> list[VisualEvent]:
     """使用批量姿态模型分析视频并生成近端动作事件。"""
 
@@ -178,6 +180,7 @@ def analyze_video(
                 use_fp16=use_half and not using_tensorrt,
                 using_tensorrt=using_tensorrt,
                 limit_duration=limit_duration,
+                progress_callback=progress_callback,
             )
         except Exception as exc:
             from tennis_video_helper.nvdec import NvdecUnavailable
@@ -197,6 +200,13 @@ def analyze_video(
     if source_fps <= 0:
         capture.release()
         raise VisualAnalysisError(f"无法读取视频帧率：{path}")
+    frame_count = max(0.0, float(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
+    source_duration = frame_count / source_fps if frame_count > 0 else 0.0
+    effective_duration = (
+        min(source_duration, limit_duration)
+        if limit_duration is not None and source_duration > 0
+        else (limit_duration or source_duration)
+    )
 
     events: list[VisualEvent] = []
     previous_pose: np.ndarray | None = None
@@ -241,6 +251,8 @@ def analyze_video(
             previous_center,
         )
         pending_frames.clear()
+        if progress_callback is not None and effective_duration > 0:
+            progress_callback(min(1.0, previous_timestamp / effective_duration))
 
     try:
         while True:
@@ -293,6 +305,8 @@ def analyze_video(
     finally:
         capture.release()
 
+    if progress_callback is not None:
+        progress_callback(1.0)
     return events
 
 
@@ -451,6 +465,7 @@ def _analyze_video_nvdec(
     use_fp16: bool,
     using_tensorrt: bool,
     limit_duration: float | None,
+    progress_callback: Callable[[float], None] | None,
 ) -> list[VisualEvent]:
     from tennis_video_helper.nvdec import iter_nvdec_batches
 
@@ -502,6 +517,10 @@ def _analyze_video_nvdec(
             previous_pose,
             previous_center,
         )
+        if progress_callback is not None:
+            progress_callback(batch.progress)
+    if progress_callback is not None:
+        progress_callback(1.0)
     return events
 
 

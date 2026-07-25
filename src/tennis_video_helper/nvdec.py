@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import importlib
 import importlib.util
+import math
 import os
 from pathlib import Path
 
@@ -21,6 +22,7 @@ class NvdecBatch:
     tensor: object
     timestamps: tuple[float, ...]
     original_images: tuple[np.ndarray, ...]
+    progress: float
 
 
 _DLL_DIRECTORIES: list[object] = []
@@ -54,6 +56,11 @@ def iter_nvdec_batches(
     total_frames = int(metadata.num_frames)
     if source_fps <= 0 or total_frames <= 0:
         raise NvdecUnavailable("NVDEC 无法读取有效的帧率或帧数")
+    progress_frame_total = _progress_frame_total(
+        total_frames,
+        source_fps,
+        limit_duration,
+    )
 
     orientation, display_width, display_height = _display_geometry(path, metadata)
     analysis_scale = min(1.0, 720 / display_height)
@@ -126,6 +133,7 @@ def iter_nvdec_batches(
                     use_fp16,
                     batch_size,
                     square_input,
+                    min(1.0, source_index / progress_frame_total),
                 )
                 pending_tensor = pending_tensor[batch_size:]
                 del pending_timestamps[:batch_size]
@@ -140,6 +148,7 @@ def iter_nvdec_batches(
                 use_fp16,
                 batch_size,
                 square_input,
+                min(1.0, source_index / progress_frame_total),
             )
     except Exception as exc:  # noqa: BLE001 - 解码期异常统一转换为可回退错误
         raise NvdecUnavailable(f"NVDEC 解码失败：{exc}") from exc
@@ -153,6 +162,18 @@ def _decode_request_size(
     """限制最后一次解码请求，避免访问视频结尾之后的帧索引。"""
 
     return min(preferred_batch_size, max(0, total_frames - source_index))
+
+
+def _progress_frame_total(
+    total_frames: int,
+    source_fps: float,
+    limit_duration: float | None,
+) -> int:
+    """返回完整分析或限时分析实际需要推进的帧数。"""
+
+    if limit_duration is None:
+        return total_frames
+    return min(total_frames, max(1, math.ceil(limit_duration * source_fps)))
 
 
 def _import_pynvvideocodec(torch_module):
@@ -235,6 +256,7 @@ def _build_batch(
     use_fp16: bool,
     batch_size: int,
     square_input: bool,
+    progress: float,
 ) -> NvdecBatch:
     actual_count = len(timestamps)
     if actual_count < batch_size:
@@ -253,6 +275,7 @@ def _build_batch(
         tensor=tensor,
         timestamps=tuple(timestamps),
         original_images=(placeholder,) * batch_size,
+        progress=progress,
     )
 
 

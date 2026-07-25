@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import subprocess
 import sys
@@ -10,8 +11,18 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap
+import cv2
+
+from PySide6.QtCore import QProcess, QProcessEnvironment, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QFont,
+    QIcon,
+    QImage,
+    QPainter,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -28,12 +39,16 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from tennis_video_helper.media import SUPPORTED_VIDEO_EXTENSIONS
+from tennis_video_helper.cli import PROGRESS_PREFIX
+from tennis_video_helper.media import SUPPORTED_VIDEO_EXTENSIONS, scan_videos
 
 
 VIDEO_FILE_FILTER = (
@@ -93,6 +108,7 @@ def build_analyze_arguments(values: AnalysisFormValues) -> list[str]:
         values.inference_precision,
         "--batch-size",
         str(values.inference_batch_size),
+        "--progress-json",
     ]
     arguments.append("--require-gpu" if values.require_gpu else "--allow-cpu")
     if values.limit_duration is not None:
@@ -142,6 +158,114 @@ def process_ids_match(expected_process_id: int, current_process_id: int) -> bool
     return expected_process_id > 0 and expected_process_id == current_process_id
 
 
+def parse_progress_line(line: str) -> dict[str, object] | None:
+    """解析 CLI 发给桌面端的单行结构化进度。"""
+
+    if not line.startswith(PROGRESS_PREFIX):
+        return None
+    try:
+        payload = json.loads(line[len(PROGRESS_PREFIX) :])
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def format_clock(seconds: float) -> str:
+    """将秒数格式化为便于等待时阅读的时间。"""
+
+    total_seconds = max(0, round(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+class PreviewLabel(QLabel):
+    """保持宽高比并随窗口尺寸缩放的视频预览。"""
+
+    def __init__(self) -> None:
+        super().__init__("选择视频后将在这里显示预览")
+        self._source_pixmap = QPixmap()
+        self.setObjectName("videoPreview")
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setMinimumHeight(290)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def set_source_pixmap(self, pixmap: QPixmap | None) -> None:
+        self._source_pixmap = pixmap or QPixmap()
+        if self._source_pixmap.isNull():
+            self.setText("当前视频暂时无法生成预览")
+        else:
+            self.setText("")
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().paintEvent(event)
+        if self._source_pixmap.isNull():
+            return
+        target = self.contentsRect()
+        scaled = self._source_pixmap.scaled(
+            target.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        painter = QPainter(self)
+        x = target.x() + (target.width() - scaled.width()) // 2
+        y = target.y() + (target.height() - scaled.height()) // 2
+        painter.drawPixmap(x, y, scaled)
+        painter.end()
+
+
+class _LargeArrowButtons:
+    """为数字框提供不依赖系统缩放的大尺寸上下按钮。"""
+
+    def _install_arrow_buttons(self) -> None:
+        self.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self._up_button = QToolButton(self)
+        self._up_button.setObjectName("spinUpButton")
+        self._up_button.setIcon(_make_arrow_icon(up=True))
+        self._up_button.setIconSize(QSize(15, 9))
+        self._up_button.setAutoRepeat(True)
+        self._up_button.clicked.connect(self.stepUp)
+        self._down_button = QToolButton(self)
+        self._down_button.setObjectName("spinDownButton")
+        self._down_button.setIcon(_make_arrow_icon(up=False))
+        self._down_button.setIconSize(QSize(15, 9))
+        self._down_button.setAutoRepeat(True)
+        self._down_button.clicked.connect(self.stepDown)
+        self._place_arrow_buttons()
+
+    def _place_arrow_buttons(self) -> None:
+        button_width = 30
+        upper_height = self.height() // 2
+        self._up_button.setGeometry(self.width() - button_width, 0, button_width, upper_height)
+        self._down_button.setGeometry(
+            self.width() - button_width,
+            upper_height,
+            button_width,
+            self.height() - upper_height,
+        )
+
+
+class LargeArrowDoubleSpinBox(_LargeArrowButtons, QDoubleSpinBox):
+    def __init__(self) -> None:
+        super().__init__()
+        self._install_arrow_buttons()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._place_arrow_buttons()
+
+
+class LargeArrowSpinBox(_LargeArrowButtons, QSpinBox):
+    def __init__(self) -> None:
+        super().__init__()
+        self._install_arrow_buttons()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._place_arrow_buttons()
+
+
 class ParameterTile(QFrame):
     """带中文调参说明的单个参数卡片。"""
 
@@ -153,9 +277,11 @@ class ParameterTile(QFrame):
     ) -> None:
         super().__init__()
         self.setObjectName("parameterTile")
+        self.setMinimumHeight(96)
+        self.control = control
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(7)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(5)
 
         header = QHBoxLayout()
         label = QLabel(title)
@@ -165,11 +291,12 @@ class ParameterTile(QFrame):
         header.addWidget(control)
         layout.addLayout(header)
 
-        note = QLabel(description)
-        note.setObjectName("parameterNote")
-        note.setWordWrap(True)
-        note.setAlignment(Qt.AlignmentFlag.AlignTop)
-        layout.addWidget(note)
+        self.note = QLabel(description)
+        self.note.setObjectName("parameterNote")
+        self.note.setWordWrap(True)
+        self.note.setMinimumHeight(30)
+        self.note.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self.note)
 
 
 class MainWindow(QMainWindow):
@@ -184,37 +311,54 @@ class MainWindow(QMainWindow):
         self.process.errorOccurred.connect(self._process_error)
         self._started_at = 0.0
         self._stopping = False
+        self._progress_percent = 0.0
+        self._process_output_buffer = ""
+        self._preview_path: Path | None = None
 
         self.elapsed_timer = QTimer(self)
         self.elapsed_timer.setInterval(1000)
         self.elapsed_timer.timeout.connect(self._update_elapsed)
 
         self.setWindowTitle("Tennis Video Helper")
-        self.setMinimumSize(980, 720)
-        self.resize(1180, 820)
+        self.setMinimumSize(1100, 760)
+        self.resize(1440, 920)
         self.setWindowIcon(_make_icon())
         self.setStyleSheet(STYLE_SHEET)
 
+        self.page_scroll = QScrollArea()
+        self.page_scroll.setObjectName("pageScroll")
+        self.page_scroll.setWidgetResizable(True)
+        self.page_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.setCentralWidget(self.page_scroll)
+
         central = QWidget()
         central.setObjectName("root")
-        self.setCentralWidget(central)
+        self.page_scroll.setWidget(central)
         root = QVBoxLayout(central)
-        root.setContentsMargins(26, 22, 26, 24)
-        root.setSpacing(16)
+        root.setContentsMargins(24, 18, 24, 22)
+        root.setSpacing(12)
 
         root.addLayout(self._build_header())
+        root.addWidget(self._build_workbench_card())
         root.addWidget(self._build_path_card())
         root.addWidget(self._build_parameter_card())
-        root.addWidget(self._build_action_card())
-        root.addWidget(self._build_log_card(), 1)
+        root.addWidget(self._build_log_card())
 
         self._set_running(False)
+        QTimer.singleShot(0, self._refresh_input_preview)
+        QTimer.singleShot(0, self._show_initial_view)
         QTimer.singleShot(0, lambda: _apply_windows_dark_frame(self))
+
+    def _show_initial_view(self) -> None:
+        """让首次打开时停留在顶部主工作区。"""
+
+        self.start_button.setFocus()
+        self.page_scroll.verticalScrollBar().setValue(0)
 
     def _build_header(self) -> QHBoxLayout:
         layout = QHBoxLayout()
         text = QVBoxLayout()
-        text.setSpacing(2)
+        text.setSpacing(1)
 
         eyebrow = QLabel("AI TENNIS WORKFLOW")
         eyebrow.setObjectName("eyebrow")
@@ -233,6 +377,94 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.status_badge, alignment=Qt.AlignmentFlag.AlignTop)
         return layout
 
+    def _build_workbench_card(self) -> QFrame:
+        card = QFrame()
+        card.setObjectName("workbenchCard")
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(18)
+
+        preview_column = QVBoxLayout()
+        preview_column.setSpacing(8)
+        preview_header = QHBoxLayout()
+        preview_title = QLabel("当前处理视频")
+        preview_title.setObjectName("workbenchTitle")
+        self.video_count_label = QLabel("等待选择视频")
+        self.video_count_label.setObjectName("mutedLabel")
+        preview_header.addWidget(preview_title)
+        preview_header.addStretch()
+        preview_header.addWidget(self.video_count_label)
+        preview_column.addLayout(preview_header)
+
+        self.preview = PreviewLabel()
+        preview_column.addWidget(self.preview, 1)
+        self.current_video_label = QLabel("尚未开始任务")
+        self.current_video_label.setObjectName("currentVideo")
+        self.current_video_label.setWordWrap(True)
+        preview_column.addWidget(self.current_video_label)
+        layout.addLayout(preview_column, 3)
+
+        status_panel = QFrame()
+        status_panel.setObjectName("statusPanel")
+        status_panel.setMinimumWidth(300)
+        status_layout = QVBoxLayout(status_panel)
+        status_layout.setContentsMargins(18, 18, 18, 18)
+        status_layout.setSpacing(12)
+
+        button_row = QHBoxLayout()
+        self.start_button = QPushButton("开始筛选")
+        self.start_button.setObjectName("primaryButton")
+        self.start_button.setMinimumHeight(48)
+        self.start_button.clicked.connect(self._start_analysis)
+        self.stop_button = QPushButton("停止任务")
+        self.stop_button.setObjectName("dangerButton")
+        self.stop_button.setMinimumHeight(48)
+        self.stop_button.clicked.connect(self._stop_analysis)
+        button_row.addWidget(self.start_button, 2)
+        button_row.addWidget(self.stop_button, 1)
+        status_layout.addLayout(button_row)
+
+        self.percent_label = QLabel("0%")
+        self.percent_label.setObjectName("percentLabel")
+        self.phase_label = QLabel("等待开始")
+        self.phase_label.setObjectName("phaseLabel")
+        self.phase_label.setWordWrap(True)
+        status_layout.addWidget(self.percent_label)
+        status_layout.addWidget(self.phase_label)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 1000)
+        self.progress.setValue(0)
+        self.progress.setFormat("0.0%")
+        self.progress.setTextVisible(True)
+        self.progress.setFixedHeight(22)
+        status_layout.addWidget(self.progress)
+
+        timing_grid = QGridLayout()
+        timing_grid.setHorizontalSpacing(18)
+        timing_grid.setVerticalSpacing(4)
+        elapsed_title = QLabel("已用时间")
+        elapsed_title.setObjectName("metricLabel")
+        eta_title = QLabel("预计剩余")
+        eta_title.setObjectName("metricLabel")
+        self.elapsed_label = QLabel("00:00:00")
+        self.elapsed_label.setObjectName("metricValue")
+        self.eta_label = QLabel("等待估算")
+        self.eta_label.setObjectName("metricValue")
+        timing_grid.addWidget(elapsed_title, 0, 0)
+        timing_grid.addWidget(eta_title, 0, 1)
+        timing_grid.addWidget(self.elapsed_label, 1, 0)
+        timing_grid.addWidget(self.eta_label, 1, 1)
+        status_layout.addLayout(timing_grid)
+
+        self.task_summary_label = QLabel("选择视频后即可开始 GPU 筛选")
+        self.task_summary_label.setObjectName("taskSummary")
+        self.task_summary_label.setWordWrap(True)
+        status_layout.addWidget(self.task_summary_label)
+        status_layout.addStretch()
+        layout.addWidget(status_panel, 1)
+        return card
+
     def _build_path_card(self) -> QFrame:
         card = _card("输入与输出")
         layout = card.layout()
@@ -243,6 +475,7 @@ class MainWindow(QMainWindow):
             str(default_input if default_input.exists() else Path.cwd())
         )
         self.input_edit.setPlaceholderText("选择单个视频，或包含视频的文件夹")
+        self.input_edit.editingFinished.connect(self._refresh_input_preview)
         self.output_edit = QLineEdit(str(default_output))
         self.output_edit.setPlaceholderText("选择精选片段保存目录")
 
@@ -274,8 +507,8 @@ class MainWindow(QMainWindow):
         card = _card("常用分析参数")
         layout = card.layout()
         grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(10)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
 
         self.min_rally = _double_spin(10.0, 1.0, 600.0, " 秒")
         self.pre_roll = _double_spin(2.0, 0.0, 30.0, " 秒")
@@ -285,12 +518,14 @@ class MainWindow(QMainWindow):
         self.audio_sensitivity = _double_spin(1.0, 0.1, 3.0, " ×")
         self.visual_sensitivity = _double_spin(1.0, 0.1, 3.0, " ×")
         self.inference_backend = QComboBox()
-        self.inference_backend.setMinimumHeight(32)
-        self.inference_backend.addItem("自动（TensorRT 优先）", "auto")
+        self.inference_backend.setMinimumHeight(40)
+        self.inference_backend.setMinimumWidth(118)
+        self.inference_backend.addItem("自动", "auto")
         self.inference_backend.addItem("TensorRT", "tensorrt")
         self.inference_backend.addItem("PyTorch CUDA", "torch")
         self.inference_precision = QComboBox()
-        self.inference_precision.setMinimumHeight(32)
+        self.inference_precision.setMinimumHeight(40)
+        self.inference_precision.setMinimumWidth(118)
         self.inference_precision.addItem("FP16", "fp16")
         self.inference_precision.addItem("FP32", "fp32")
         self.inference_batch_size = _int_spin(16, 1, 64, " 帧")
@@ -313,7 +548,7 @@ class MainWindow(QMainWindow):
         limit_box = QFrame()
         limit_box.setObjectName("parameterTile")
         limit_layout = QHBoxLayout(limit_box)
-        limit_layout.setContentsMargins(14, 12, 14, 12)
+        limit_layout.setContentsMargins(12, 9, 12, 9)
         self.limit_check = QCheckBox("仅分析前")
         self.limit_minutes = _double_spin(5.0, 0.1, 180.0, " 分钟")
         self.limit_minutes.setEnabled(False)
@@ -326,33 +561,9 @@ class MainWindow(QMainWindow):
         hint = QLabel("适合快速试跑和调参；关闭后分析完整视频。")
         hint.setObjectName("parameterNote")
         limit_layout.addWidget(hint)
-        grid.addWidget(limit_box, 1, 3)
+        grid.addWidget(limit_box, 3, 0, 1, 4)
 
         layout.addLayout(grid)
-        return card
-
-    def _build_action_card(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("actionCard")
-        layout = QHBoxLayout(card)
-        layout.setContentsMargins(18, 14, 18, 14)
-
-        self.start_button = QPushButton("开始筛选")
-        self.start_button.setObjectName("primaryButton")
-        self.start_button.clicked.connect(self._start_analysis)
-        self.stop_button = QPushButton("停止任务")
-        self.stop_button.setObjectName("dangerButton")
-        self.stop_button.clicked.connect(self._stop_analysis)
-        self.progress = QProgressBar()
-        self.progress.setTextVisible(False)
-        self.progress.setFixedHeight(7)
-        self.elapsed_label = QLabel("00:00:00")
-        self.elapsed_label.setObjectName("elapsed")
-
-        layout.addWidget(self.start_button)
-        layout.addWidget(self.stop_button)
-        layout.addWidget(self.progress, 1)
-        layout.addWidget(self.elapsed_label)
         return card
 
     def _build_log_card(self) -> QFrame:
@@ -362,6 +573,8 @@ class MainWindow(QMainWindow):
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("任务开始后，这里会显示环境检查和每个视频的处理结果。")
         self.log.setMaximumBlockCount(2000)
+        self.log.setMinimumHeight(120)
+        self.log.setMaximumHeight(180)
         layout.addWidget(self.log)
         return card
 
@@ -421,6 +634,13 @@ class MainWindow(QMainWindow):
 
         self._stopping = False
         self._started_at = time.monotonic()
+        self._progress_percent = 0.0
+        self._process_output_buffer = ""
+        self.progress.setValue(0)
+        self.progress.setFormat("0.0%")
+        self.percent_label.setText("0%")
+        self.phase_label.setText("正在检查运行环境")
+        self.eta_label.setText("正在估算")
         self.elapsed_timer.start()
         self._set_running(True)
         self.process.start(sys.executable, build_analyze_arguments(values))
@@ -459,12 +679,52 @@ class MainWindow(QMainWindow):
 
     def _read_process_output(self) -> None:
         text = bytes(self.process.readAllStandardOutput()).decode("utf-8", errors="replace")
-        if text:
-            self.log.insertPlainText(text)
-            self.log.ensureCursorVisible()
+        if not text:
+            return
+        self._process_output_buffer += text
+        while "\n" in self._process_output_buffer:
+            line, self._process_output_buffer = self._process_output_buffer.split("\n", 1)
+            self._handle_process_line(line.rstrip("\r"))
+
+    def _handle_process_line(self, line: str) -> None:
+        payload = parse_progress_line(line)
+        if payload is not None:
+            self._apply_progress(payload)
+            return
+        if line:
+            self._append_log(line)
+
+    def _apply_progress(self, payload: dict[str, object]) -> None:
+        try:
+            percent = min(100.0, max(0.0, float(payload.get("percent", 0.0))))
+        except (TypeError, ValueError):
+            return
+        self._progress_percent = percent
+        self.progress.setValue(round(percent * 10))
+        self.progress.setFormat(f"{percent:.1f}%")
+        self.percent_label.setText(f"{percent:.0f}%")
+        phase = str(payload.get("phase") or "处理中")
+        self.phase_label.setText(phase)
+
+        video_index = int(payload.get("video_index") or 0)
+        video_total = int(payload.get("video_total") or 0)
+        if video_total > 0:
+            self.video_count_label.setText(f"第 {video_index}/{video_total} 个视频")
+        current_video = payload.get("current_video")
+        if current_video:
+            self._show_video_preview(Path(str(current_video)))
+        self.task_summary_label.setText(
+            f"{phase} · {self.current_video_label.text()}"
+            if self.current_video_label.text()
+            else phase
+        )
+        self._update_timing_labels()
 
     def _process_finished(self, exit_code: int, _status) -> None:
         self._read_process_output()
+        if self._process_output_buffer:
+            self._handle_process_line(self._process_output_buffer.rstrip("\r"))
+            self._process_output_buffer = ""
         self.elapsed_timer.stop()
         self._set_running(False)
         if self._stopping:
@@ -472,7 +732,12 @@ class MainWindow(QMainWindow):
             self._append_log("任务已停止。再次运行时会自动创建新的输出子目录。")
         elif exit_code == 0:
             self.status_badge.setText("●  处理完成")
-            self.progress.setValue(1)
+            self._progress_percent = 100.0
+            self.progress.setValue(1000)
+            self.progress.setFormat("100.0%")
+            self.percent_label.setText("100%")
+            self.phase_label.setText("全部任务完成")
+            self.eta_label.setText("已完成")
             self._append_log("全部任务完成，可以打开输出目录查看精选片段。")
         else:
             self.status_badge.setText("●  处理失败")
@@ -492,17 +757,25 @@ class MainWindow(QMainWindow):
         self.output_edit.setEnabled(not running)
         if running:
             self.status_badge.setText("●  GPU 处理中")
-            self.progress.setRange(0, 0)
+            self.progress.setRange(0, 1000)
         else:
-            self.progress.setRange(0, 1)
+            self.progress.setRange(0, 1000)
             if not self.status_badge.text():
                 self.status_badge.setText("●  等待任务")
 
     def _update_elapsed(self) -> None:
-        seconds = int(time.monotonic() - self._started_at)
-        hours, remainder = divmod(seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        self.elapsed_label.setText(f"{hours:02d}:{minutes:02d}:{seconds:02d}")
+        self._update_timing_labels()
+
+    def _update_timing_labels(self) -> None:
+        elapsed = max(0.0, time.monotonic() - self._started_at)
+        self.elapsed_label.setText(format_clock(elapsed))
+        if self._progress_percent >= 100:
+            self.eta_label.setText("已完成")
+        elif elapsed < 2 or self._progress_percent < 1:
+            self.eta_label.setText("正在估算")
+        else:
+            remaining = elapsed * (100 - self._progress_percent) / self._progress_percent
+            self.eta_label.setText(format_clock(remaining))
 
     def _append_log(self, message: str) -> None:
         self.log.appendPlainText(message)
@@ -516,6 +789,7 @@ class MainWindow(QMainWindow):
         )
         if path:
             self.input_edit.setText(path)
+            self._refresh_input_preview()
 
     def _choose_input_folder(self) -> None:
         path = QFileDialog.getExistingDirectory(
@@ -523,6 +797,7 @@ class MainWindow(QMainWindow):
         )
         if path:
             self.input_edit.setText(path)
+            self._refresh_input_preview()
 
     def _choose_output_folder(self) -> None:
         path = QFileDialog.getExistingDirectory(
@@ -542,6 +817,30 @@ class MainWindow(QMainWindow):
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "无法打开输出目录", str(exc))
 
+    def _refresh_input_preview(self) -> None:
+        text = self.input_edit.text().strip()
+        if not text:
+            return
+        path = Path(text)
+        try:
+            if path.is_dir():
+                videos = scan_videos(path)
+                path = videos[0] if videos else path
+            if path.is_file() and path.suffix.lower() in SUPPORTED_VIDEO_EXTENSIONS:
+                self._show_video_preview(path)
+                self.video_count_label.setText("已载入预览")
+        except (OSError, FileNotFoundError):
+            return
+
+    def _show_video_preview(self, path: Path) -> None:
+        resolved = path.resolve()
+        if self._preview_path == resolved:
+            return
+        self._preview_path = resolved
+        self.current_video_label.setText(resolved.name)
+        pixmap = _video_thumbnail(resolved)
+        self.preview.set_source_pixmap(pixmap)
+
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API 命名
         if self.process.state() != QProcess.ProcessState.NotRunning:
             self._terminate_process_tree()
@@ -554,8 +853,8 @@ def _card(title: str) -> QFrame:
     card = QFrame()
     card.setObjectName("card")
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(18, 15, 18, 17)
-    layout.setSpacing(12)
+    layout.setContentsMargins(16, 12, 16, 14)
+    layout.setSpacing(9)
     label = QLabel(title)
     label.setObjectName("sectionTitle")
     layout.addWidget(label)
@@ -565,32 +864,82 @@ def _card(title: str) -> QFrame:
 def _field_label(text: str) -> QLabel:
     label = QLabel(text)
     label.setObjectName("fieldLabel")
-    label.setFixedWidth(112)
+    label.setFixedWidth(105)
     return label
+
+
+def _video_thumbnail(path: Path) -> QPixmap | None:
+    """读取视频靠前画面作为任务预览。"""
+
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            return None
+        frame_count = max(0, int(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
+        if frame_count > 10:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, min(frame_count - 1, frame_count // 12))
+        ok, frame = capture.read()
+        if not ok:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ok, frame = capture.read()
+        if not ok or frame is None:
+            return None
+    finally:
+        capture.release()
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    height, width, channels = rgb.shape
+    image = QImage(
+        rgb.data,
+        width,
+        height,
+        channels * width,
+        QImage.Format.Format_RGB888,
+    ).copy()
+    return QPixmap.fromImage(image)
 
 
 def _double_spin(
     value: float, minimum: float, maximum: float, suffix: str
 ) -> QDoubleSpinBox:
-    control = QDoubleSpinBox()
+    control = LargeArrowDoubleSpinBox()
     control.setRange(minimum, maximum)
     control.setDecimals(1)
     control.setSingleStep(0.5)
     control.setValue(value)
     control.setSuffix(suffix)
-    control.setMinimumWidth(105)
-    control.setMinimumHeight(32)
+    control.setMinimumWidth(124)
+    control.setMinimumHeight(40)
     return control
 
 
 def _int_spin(value: int, minimum: int, maximum: int, suffix: str) -> QSpinBox:
-    control = QSpinBox()
+    control = LargeArrowSpinBox()
     control.setRange(minimum, maximum)
     control.setValue(value)
     control.setSuffix(suffix)
-    control.setMinimumWidth(105)
-    control.setMinimumHeight(32)
+    control.setMinimumWidth(124)
+    control.setMinimumHeight(40)
     return control
+
+
+def _make_arrow_icon(*, up: bool) -> QIcon:
+    pixmap = QPixmap(18, 12)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#e7eaed"))
+    if up:
+        points = [(9, 2), (2, 10), (16, 10)]
+    else:
+        points = [(2, 2), (16, 2), (9, 10)]
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QPolygon
+
+    painter.drawPolygon(QPolygon([QPoint(x, y) for x, y in points]))
+    painter.end()
+    return QIcon(pixmap)
 
 
 def _make_icon() -> QIcon:
@@ -638,13 +987,14 @@ QWidget#root {
     font-family: "Segoe UI", "Microsoft YaHei UI";
     font-size: 13px;
 }
+QScrollArea#pageScroll { background: #0a0b0d; border: none; }
 QLabel#eyebrow {
     color: #b9f45a;
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 2px;
 }
-QLabel#heroTitle { color: #ffffff; font-size: 30px; font-weight: 700; }
+QLabel#heroTitle { color: #ffffff; font-size: 27px; font-weight: 700; }
 QLabel#heroSubtitle { color: #8d9198; font-size: 13px; }
 QLabel#statusBadge {
     color: #c9f77e;
@@ -654,12 +1004,40 @@ QLabel#statusBadge {
     padding: 7px 12px;
     font-weight: 600;
 }
-QFrame#card, QFrame#actionCard {
+QFrame#card, QFrame#workbenchCard {
     background: rgba(25, 27, 30, 0.96);
     border: 1px solid #2a2d32;
-    border-radius: 18px;
+    border-radius: 15px;
 }
-QFrame#actionCard { background: rgba(20, 22, 24, 0.98); }
+QFrame#workbenchCard {
+    background: #111316;
+    border-color: #30343a;
+}
+QFrame#statusPanel {
+    background: #171a1e;
+    border: 1px solid #30353b;
+    border-radius: 13px;
+}
+QLabel#videoPreview {
+    color: #777d85;
+    background: #070809;
+    border: 1px solid #30343a;
+    border-radius: 12px;
+    padding: 4px;
+}
+QLabel#workbenchTitle { color: #f5f6f7; font-size: 15px; font-weight: 700; }
+QLabel#mutedLabel { color: #858a91; }
+QLabel#currentVideo { color: #c6cbd1; font-size: 12px; }
+QLabel#percentLabel { color: #b9f45a; font-size: 42px; font-weight: 700; }
+QLabel#phaseLabel { color: #f2f4f5; font-size: 16px; font-weight: 600; }
+QLabel#metricLabel { color: #7f858d; font-size: 11px; }
+QLabel#metricValue {
+    color: #f2f4f5;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: "Cascadia Mono", "Consolas";
+}
+QLabel#taskSummary { color: #8f959d; font-size: 12px; }
 QLabel#sectionTitle { color: #f3f4f5; font-size: 14px; font-weight: 700; }
 QLabel#fieldLabel { color: #aeb2b8; font-weight: 600; }
 QLineEdit, QPlainTextEdit, QDoubleSpinBox, QSpinBox, QComboBox {
@@ -671,7 +1049,7 @@ QLineEdit, QPlainTextEdit, QDoubleSpinBox, QSpinBox, QComboBox {
     selection-background-color: #6f9935;
 }
 QDoubleSpinBox, QSpinBox, QComboBox {
-    padding: 4px 8px;
+    padding: 4px 34px 4px 9px;
 }
 QDoubleSpinBox QLineEdit, QSpinBox QLineEdit {
     color: #f1f2f3;
@@ -682,6 +1060,46 @@ QDoubleSpinBox QLineEdit, QSpinBox QLineEdit {
 }
 QLineEdit:focus, QPlainTextEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {
     border: 1px solid #94c84a;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 28px;
+    border-left: 1px solid #30343a;
+    border-bottom: 1px solid #262a2f;
+    background: #1b1e22;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 28px;
+    border-left: 1px solid #30343a;
+    background: #1b1e22;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background: #30353b;
+}
+QToolButton#spinUpButton, QToolButton#spinDownButton {
+    background: #1b1e22;
+    border: none;
+    border-left: 1px solid #30343a;
+    border-radius: 0;
+    padding: 0;
+}
+QToolButton#spinUpButton {
+    border-bottom: 1px solid #2a2e33;
+    border-top-right-radius: 9px;
+}
+QToolButton#spinDownButton { border-bottom-right-radius: 9px; }
+QToolButton#spinUpButton:hover, QToolButton#spinDownButton:hover {
+    background: #34393f;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 28px;
+    border-left: 1px solid #30343a;
 }
 QPlainTextEdit {
     font-family: "Cascadia Mono", "Consolas";
@@ -703,7 +1121,8 @@ QPushButton#primaryButton {
     color: #11150c;
     background: #b9f45a;
     border: 1px solid #c8ff73;
-    padding: 10px 24px;
+    padding: 11px 24px;
+    font-size: 15px;
 }
 QPushButton#primaryButton:hover { background: #c8ff73; }
 QPushButton#dangerButton { color: #ffb7b7; background: #352426; border-color: #573437; }
@@ -713,14 +1132,21 @@ QFrame#parameterTile {
     border-radius: 12px;
 }
 QLabel#parameterTitle { color: #e8eaec; font-weight: 700; }
-QLabel#parameterNote { color: #7f848c; font-size: 11px; }
-QLabel#elapsed { color: #a5a9af; font-family: "Cascadia Mono", "Consolas"; }
+QLabel#parameterNote { color: #777d85; font-size: 10px; }
 QCheckBox { color: #d6d8db; spacing: 8px; }
 QCheckBox::indicator { width: 16px; height: 16px; }
 QCheckBox::indicator:unchecked { background: #0e1012; border: 1px solid #41464d; border-radius: 4px; }
 QCheckBox::indicator:checked { background: #b9f45a; border: 1px solid #b9f45a; border-radius: 4px; }
-QProgressBar { background: #181b1e; border: none; border-radius: 3px; }
-QProgressBar::chunk { background: #b9f45a; border-radius: 3px; }
+QProgressBar {
+    color: #f4f6f7;
+    background: #0d0f11;
+    border: 1px solid #2d3237;
+    border-radius: 10px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+}
+QProgressBar::chunk { background: #8fcf3d; border-radius: 9px; }
 QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
 QScrollBar::handle:vertical { background: #3a3e44; border-radius: 5px; min-height: 24px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }

@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import typer
 
 from tennis_video_helper.config import AnalysisConfig
-from tennis_video_helper.pipeline import process_batch
+from tennis_video_helper.pipeline import ProgressUpdate, process_batch
+
+PROGRESS_PREFIX = "TVH_PROGRESS "
 
 app = typer.Typer(
     name="tennis-video-helper",
@@ -108,6 +112,11 @@ def analyze(
         "--require-gpu/--allow-cpu",
         help="缺少 CUDA 时停止，或明确警告后回退 CPU。",
     ),
+    progress_json: bool = typer.Option(
+        False,
+        "--progress-json",
+        hidden=True,
+    ),
 ) -> None:
     """分析视频并通过 NVENC 输出持续时间较长的回合。"""
 
@@ -131,11 +140,20 @@ def analyze(
         require_gpu=require_gpu,
         gpu_available=gpu_available,
     )
+    progress_lock = threading.Lock()
+
+    def emit_progress(update: ProgressUpdate) -> None:
+        if not progress_json:
+            return
+        with progress_lock:
+            typer.echo(_format_progress_line(update))
+
     result = process_batch(
         input_path,
         output,
         config,
         limit_duration=limit_duration,
+        progress_callback=emit_progress if progress_json else None,
     )
     if not result.results:
         typer.echo(
@@ -194,6 +212,17 @@ def _check_runtime(*, require_gpu: bool = False) -> bool:
             err=True,
         )
     return gpu_available
+
+
+def _format_progress_line(update: ProgressUpdate) -> str:
+    payload = {
+        "percent": round(update.percent, 2),
+        "phase": update.phase,
+        "current_video": str(update.current_video) if update.current_video else None,
+        "video_index": update.video_index,
+        "video_total": update.video_total,
+    }
+    return PROGRESS_PREFIX + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 if __name__ == "__main__":

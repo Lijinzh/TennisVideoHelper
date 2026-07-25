@@ -78,6 +78,7 @@ def test_estimate_global_motion_detects_shared_frame_translation() -> None:
 
 def test_analyze_video_batches_cuda_fp16_predictions(monkeypatch, tmp_path) -> None:
     prediction_calls: list[tuple[int, int | str, bool]] = []
+    progress_updates: list[float] = []
 
     class FakeCapture:
         def __init__(self, _path: str) -> None:
@@ -129,11 +130,13 @@ def test_analyze_video_batches_cuda_fp16_predictions(monkeypatch, tmp_path) -> N
             inference_precision="fp16",
             require_gpu=False,
         ),
+        progress_callback=progress_updates.append,
     )
 
     assert [size for size, _device, _fp16 in prediction_calls] == [2, 2]
     assert all(device == 0 for _size, device, _fp16 in prediction_calls)
     assert all(use_fp16 is True for _size, _device, use_fp16 in prediction_calls)
+    assert progress_updates[-1] == 1.0
 
 
 def test_analyze_video_falls_back_to_cpu_explicitly(monkeypatch, tmp_path) -> None:

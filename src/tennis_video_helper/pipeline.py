@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -31,7 +31,10 @@ class PipelineServices:
     extract_audio: Callable[[Path, Path, int], None]
     load_audio: Callable[[Path], tuple[np.ndarray, int]]
     detect_audio_events: Callable[[np.ndarray, int, AnalysisConfig], list[AudioEvent]]
-    analyze_video: Callable[[Path, AnalysisConfig, float | None], list[VisualEvent]]
+    analyze_video: Callable[
+        [Path, AnalysisConfig, float | None, Callable[[float], None] | None],
+        list[VisualEvent],
+    ]
     export_clip: Callable[[MediaInfo, RallySegment, Path, AnalysisConfig], None]
     verify_clip: Callable[[Path, MediaInfo, RallySegment], tuple[bool, str | None]]
     write_reports: Callable[
@@ -89,6 +92,21 @@ class BatchResult:
         return len(self.results) - self.success_count
 
 
+@dataclass(frozen=True, slots=True)
+class ProgressUpdate:
+    """供 CLI/UI 展示的批处理进度快照。"""
+
+    percent: float
+    phase: str
+    current_video: Path | None
+    video_index: int
+    video_total: int
+
+
+ProgressCallback = Callable[[ProgressUpdate], None]
+VideoProgressCallback = Callable[[float, str], None]
+
+
 def process_batch(
     input_path: Path,
     output_root: Path,
@@ -96,13 +114,33 @@ def process_batch(
     *,
     limit_duration: float | None = None,
     services: PipelineServices | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> BatchResult:
     """逐个处理视频，单文件失败不阻止后续文件。"""
 
     active_services = services or PipelineServices.defaults()
     sources = active_services.scan_videos(Path(input_path))
     results: list[VideoProcessResult] = []
-    for source in sources:
+    video_total = len(sources)
+    if progress_callback is not None:
+        progress_callback(ProgressUpdate(0.0, "准备任务", None, 0, video_total))
+    for video_index, source in enumerate(sources, start=1):
+        def report_video_progress(fraction: float, phase: str) -> None:
+            if progress_callback is None:
+                return
+            bounded = min(1.0, max(0.0, fraction))
+            overall = ((video_index - 1) + bounded) / max(1, video_total) * 100
+            progress_callback(
+                ProgressUpdate(
+                    percent=overall,
+                    phase=phase,
+                    current_video=source,
+                    video_index=video_index,
+                    video_total=video_total,
+                )
+            )
+
+        report_video_progress(0.0, "读取视频信息")
         try:
             result = _process_video(
                 source,
@@ -110,6 +148,7 @@ def process_batch(
                 config,
                 limit_duration,
                 active_services,
+                report_video_progress,
             )
         except Exception as exc:  # noqa: BLE001 - 单文件错误必须转为批处理结果
             result = VideoProcessResult(
@@ -118,6 +157,27 @@ def process_batch(
                 error=str(exc),
             )
         results.append(result)
+        report_video_progress(
+            1.0,
+            "当前视频完成" if result.succeeded else "当前视频失败",
+        )
+    if progress_callback is not None:
+        final_phase = "没有找到视频"
+        if sources:
+            final_phase = (
+                "全部任务完成"
+                if all(result.succeeded for result in results)
+                else "全部任务结束（含失败）"
+            )
+        progress_callback(
+            ProgressUpdate(
+                100.0,
+                final_phase,
+                sources[-1] if sources else None,
+                video_total,
+                video_total,
+            )
+        )
     return BatchResult(tuple(results))
 
 
@@ -127,8 +187,10 @@ def _process_video(
     config: AnalysisConfig,
     limit_duration: float | None,
     services: PipelineServices,
+    progress_callback: VideoProgressCallback,
 ) -> VideoProcessResult:
     media = services.probe_media(source)
+    progress_callback(0.04, "检查媒体信息")
     if not media.audio_codec:
         raise RuntimeError(f"视频没有音轨，第一版无法执行音画融合：{source}")
     if media.is_dolby_vision and not media.has_hlg_compatible_dolby_base_layer:
@@ -139,6 +201,10 @@ def _process_video(
     output_dir = _next_available_output_dir(output_root, source.stem)
     clips_dir = output_dir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
+    progress_callback(0.07, "并行分析声音与画面")
+
+    def report_visual_progress(fraction: float) -> None:
+        progress_callback(0.08 + min(1.0, max(0.0, fraction)) * 0.67, "GPU 分析画面")
 
     with tempfile.TemporaryDirectory(prefix="tennis-video-helper-") as temporary:
         audio_path = Path(temporary) / "audio.wav"
@@ -156,9 +222,11 @@ def _process_video(
                 source,
                 config,
                 limit_duration,
+                report_visual_progress,
             )
             audio_events = audio_future.result()
             visual_events = visual_future.result()
+    progress_callback(0.76, "融合声音与动作")
     fused_events = fuse_events(audio_events, visual_events, config)
     effective_duration = (
         min(media.duration, limit_duration)
@@ -166,9 +234,10 @@ def _process_video(
         else media.duration
     )
     segments = build_rally_segments(fused_events, effective_duration, config)
+    progress_callback(0.80, "导出精选片段")
 
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="tennis-export") as executor:
-        export_futures = [
+        export_futures = {
             executor.submit(
                 _export_and_verify_segment,
                 index,
@@ -177,11 +246,19 @@ def _process_video(
                 media,
                 config,
                 services,
-            )
+            ): index
             for index, segment in enumerate(segments, start=1)
-        ]
-        records = [future.result() for future in export_futures]
+        }
+        records = []
+        for completed_count, future in enumerate(as_completed(export_futures), start=1):
+            records.append(future.result())
+            progress_callback(
+                0.80 + 0.17 * completed_count / max(1, len(export_futures)),
+                f"导出精选片段 {completed_count}/{len(export_futures)}",
+            )
+    records.sort(key=lambda record: record.index)
 
+    progress_callback(0.98, "生成分析报告")
     services.write_reports(
         output_dir,
         media,
@@ -323,10 +400,16 @@ def _analyze_video(
     path: Path,
     config: AnalysisConfig,
     limit_duration: float | None,
+    progress_callback: Callable[[float], None] | None,
 ) -> list[VisualEvent]:
     from tennis_video_helper.vision import analyze_video
 
-    return analyze_video(path, config, limit_duration=limit_duration)
+    return analyze_video(
+        path,
+        config,
+        limit_duration=limit_duration,
+        progress_callback=progress_callback,
+    )
 
 
 def _export_clip(

@@ -1,20 +1,25 @@
 import os
 from pathlib import Path
+import time
 
 import pytest
-from PySide6.QtCore import QProcess
+from PySide6.QtCore import QProcess, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from tennis_video_helper.gui import (
     AnalysisFormValues,
+    ParameterTile,
     MainWindow,
     VIDEO_FILE_FILTER,
     build_analyze_arguments,
     build_stop_command,
+    format_clock,
     parse_output_path,
     parse_paths,
+    parse_progress_line,
     process_ids_match,
 )
 
@@ -43,6 +48,7 @@ def test_build_analyze_arguments_includes_paths_and_parameters() -> None:
     assert arguments[arguments.index("--backend") + 1] == "auto"
     assert arguments[arguments.index("--precision") + 1] == "fp16"
     assert arguments[arguments.index("--batch-size") + 1] == "16"
+    assert "--progress-json" in arguments
     assert "--allow-cpu" in arguments
     assert arguments[arguments.index("--limit-duration") + 1] == "300"
 
@@ -133,3 +139,85 @@ def test_parameter_spin_boxes_keep_text_area_visible() -> None:
 
     window.close()
     app.processEvents()
+
+
+def test_initial_view_focuses_primary_action_and_stays_at_top() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.resize(1100, 760)
+    window.show()
+    app.processEvents()
+
+    window.page_scroll.verticalScrollBar().setValue(
+        window.page_scroll.verticalScrollBar().maximum()
+    )
+    window._show_initial_view()
+
+    assert window.start_button.hasFocus()
+    assert window.page_scroll.verticalScrollBar().value() == 0
+
+    window.close()
+    app.processEvents()
+
+
+def test_parameter_tiles_and_large_buttons_do_not_overlap() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.resize(1100, 760)
+    window.show()
+    app.processEvents()
+
+    tiles = window.findChildren(ParameterTile)
+    assert tiles
+    for tile in tiles:
+        assert tile.control.geometry().bottom() < tile.note.geometry().top()
+
+    assert window.min_rally._up_button.width() >= 28
+    assert window.min_rally._up_button.height() >= 18
+    assert window.min_rally._down_button.width() >= 28
+    assert window.min_rally._down_button.height() >= 18
+    original_value = window.min_rally.value()
+    QTest.mouseClick(window.min_rally._up_button, Qt.MouseButton.LeftButton)
+    app.processEvents()
+    assert window.min_rally.value() == pytest.approx(original_value + 0.5)
+
+    window.close()
+    app.processEvents()
+
+
+def test_progress_payload_updates_visible_status() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window._started_at = time.monotonic() - 20
+
+    window._apply_progress(
+        {
+            "percent": 42.5,
+            "phase": "GPU 分析画面",
+            "current_video": None,
+            "video_index": 2,
+            "video_total": 4,
+        }
+    )
+
+    assert window.progress.value() == 425
+    assert window.progress.format() == "42.5%"
+    assert window.percent_label.text() == "42%"
+    assert window.phase_label.text() == "GPU 分析画面"
+    assert window.video_count_label.text() == "第 2/4 个视频"
+    assert window.eta_label.text() != "正在估算"
+
+    window.close()
+    app.processEvents()
+
+
+def test_progress_line_and_clock_formatting() -> None:
+    payload = parse_progress_line(
+        'TVH_PROGRESS {"percent":12.5,"phase":"读取视频信息","video_total":2}'
+    )
+
+    assert payload is not None
+    assert payload["percent"] == 12.5
+    assert parse_progress_line("普通日志") is None
+    assert parse_progress_line("TVH_PROGRESS invalid") is None
+    assert format_clock(3661) == "01:01:01"

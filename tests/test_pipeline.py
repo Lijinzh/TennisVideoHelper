@@ -48,7 +48,7 @@ def test_process_batch_continues_after_one_video_fails(tmp_path: Path) -> None:
             AudioEvent(float(timestamp), 1.0, 10.0)
             for timestamp in range(1, 14, 2)
         ],
-        analyze_video=lambda path, config, limit_duration: [
+        analyze_video=lambda path, config, limit_duration, progress: [
             VisualEvent(float(timestamp), 1.0, 1.0, 0.0)
             for timestamp in range(1, 14, 2)
         ],
@@ -138,7 +138,7 @@ def test_process_batch_removes_clip_that_fails_verification(tmp_path: Path) -> N
             AudioEvent(float(timestamp), 1.0, 10.0)
             for timestamp in range(1, 14, 2)
         ],
-        analyze_video=lambda _path, _config, _limit: [
+        analyze_video=lambda _path, _config, _limit, _progress: [
             VisualEvent(float(timestamp), 1.0, 1.0, 0.0)
             for timestamp in range(1, 14, 2)
         ],
@@ -152,3 +152,41 @@ def test_process_batch_removes_clip_that_fails_verification(tmp_path: Path) -> N
     record = result.results[0].records[0]
     assert record.verified is False
     assert not record.path.exists()
+
+
+def test_process_batch_reports_monotonic_progress(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    updates = []
+
+    def analyze(_path, _config, _limit, progress) -> list[VisualEvent]:
+        progress(0.25)
+        progress(0.75)
+        progress(1.0)
+        return []
+
+    services = PipelineServices(
+        scan_videos=lambda _: [source],
+        probe_media=lambda _: _media(source),
+        extract_audio=lambda _source, target, _sample_rate: target.touch(),
+        load_audio=lambda _: (np.zeros(100, dtype=np.float32), 22_050),
+        detect_audio_events=lambda *_args: [],
+        analyze_video=analyze,
+        export_clip=lambda *_args: None,
+        verify_clip=lambda *_args: (True, None),
+        write_reports=lambda *_args: None,
+    )
+
+    process_batch(
+        source,
+        tmp_path / "output",
+        AnalysisConfig(),
+        services=services,
+        progress_callback=updates.append,
+    )
+
+    percentages = [update.percent for update in updates]
+    assert percentages == sorted(percentages)
+    assert percentages[-1] == 100.0
+    assert any(update.phase == "GPU 分析画面" for update in updates)
+    assert updates[-1].current_video == source
+    assert updates[-1].phase == "全部任务完成"
