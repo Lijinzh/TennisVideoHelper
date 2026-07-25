@@ -160,6 +160,31 @@ def test_initial_view_focuses_primary_action_and_stays_at_top() -> None:
     app.processEvents()
 
 
+def test_portrait_workspace_fits_primary_controls_without_scrolling() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.resize(1100, 760)
+    window.show()
+    app.processEvents()
+
+    central = window.centralWidget()
+    preview_position = window.preview.mapTo(central, window.preview.rect().topLeft())
+    start_position = window.start_button.mapTo(
+        central, window.start_button.rect().topLeft()
+    )
+    input_position = window.input_edit.mapTo(
+        central, window.input_edit.rect().topLeft()
+    )
+
+    assert window.preview.width() < window.preview.height()
+    assert start_position.x() > preview_position.x() + window.preview.width()
+    assert input_position.x() > start_position.x()
+    assert window.page_scroll.verticalScrollBar().maximum() == 0
+
+    window.close()
+    app.processEvents()
+
+
 def test_parameter_tiles_and_large_buttons_do_not_overlap() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()

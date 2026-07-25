@@ -187,8 +187,9 @@ class PreviewLabel(QLabel):
         self._source_pixmap = QPixmap()
         self.setObjectName("videoPreview")
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setMinimumHeight(290)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumSize(220, 255)
+        self.setMaximumSize(260, 310)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def set_source_pixmap(self, pixmap: QPixmap | None) -> None:
         self._source_pixmap = pixmap or QPixmap()
@@ -277,11 +278,11 @@ class ParameterTile(QFrame):
     ) -> None:
         super().__init__()
         self.setObjectName("parameterTile")
-        self.setMinimumHeight(96)
+        self.setMinimumHeight(80)
         self.control = control
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(5)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(4)
 
         header = QHBoxLayout()
         label = QLabel(title)
@@ -294,7 +295,7 @@ class ParameterTile(QFrame):
         self.note = QLabel(description)
         self.note.setObjectName("parameterNote")
         self.note.setWordWrap(True)
-        self.note.setMinimumHeight(30)
+        self.note.setMinimumHeight(22)
         self.note.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.addWidget(self.note)
 
@@ -335,14 +336,12 @@ class MainWindow(QMainWindow):
         central.setObjectName("root")
         self.page_scroll.setWidget(central)
         root = QVBoxLayout(central)
-        root.setContentsMargins(24, 18, 24, 22)
-        root.setSpacing(12)
+        root.setContentsMargins(20, 8, 20, 8)
+        root.setSpacing(8)
 
         root.addLayout(self._build_header())
         root.addWidget(self._build_workbench_card())
-        root.addWidget(self._build_path_card())
         root.addWidget(self._build_parameter_card())
-        root.addWidget(self._build_log_card())
 
         self._set_running(False)
         QTimer.singleShot(0, self._refresh_input_preview)
@@ -384,7 +383,12 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(18)
 
-        preview_column = QVBoxLayout()
+        preview_panel = QWidget()
+        preview_panel.setObjectName("previewColumn")
+        preview_panel.setMinimumWidth(240)
+        preview_panel.setMaximumWidth(280)
+        preview_column = QVBoxLayout(preview_panel)
+        preview_column.setContentsMargins(0, 0, 0, 0)
         preview_column.setSpacing(8)
         preview_header = QHBoxLayout()
         preview_title = QLabel("当前处理视频")
@@ -402,11 +406,12 @@ class MainWindow(QMainWindow):
         self.current_video_label.setObjectName("currentVideo")
         self.current_video_label.setWordWrap(True)
         preview_column.addWidget(self.current_video_label)
-        layout.addLayout(preview_column, 3)
+        layout.addWidget(preview_panel)
 
         status_panel = QFrame()
         status_panel.setObjectName("statusPanel")
-        status_panel.setMinimumWidth(300)
+        status_panel.setMinimumWidth(280)
+        status_panel.setMaximumWidth(350)
         status_layout = QVBoxLayout(status_panel)
         status_layout.setContentsMargins(18, 18, 18, 18)
         status_layout.setSpacing(12)
@@ -462,7 +467,13 @@ class MainWindow(QMainWindow):
         self.task_summary_label.setWordWrap(True)
         status_layout.addWidget(self.task_summary_label)
         status_layout.addStretch()
-        layout.addWidget(status_panel, 1)
+        layout.addWidget(status_panel)
+
+        utility_column = QVBoxLayout()
+        utility_column.setSpacing(10)
+        utility_column.addWidget(self._build_path_card())
+        utility_column.addWidget(self._build_log_card(), 1)
+        layout.addLayout(utility_column, 1)
         return card
 
     def _build_path_card(self) -> QFrame:
@@ -519,13 +530,13 @@ class MainWindow(QMainWindow):
         self.visual_sensitivity = _double_spin(1.0, 0.1, 3.0, " ×")
         self.inference_backend = QComboBox()
         self.inference_backend.setMinimumHeight(40)
-        self.inference_backend.setMinimumWidth(118)
+        self.inference_backend.setMinimumWidth(102)
         self.inference_backend.addItem("自动", "auto")
         self.inference_backend.addItem("TensorRT", "tensorrt")
         self.inference_backend.addItem("PyTorch CUDA", "torch")
         self.inference_precision = QComboBox()
         self.inference_precision.setMinimumHeight(40)
-        self.inference_precision.setMinimumWidth(118)
+        self.inference_precision.setMinimumWidth(102)
         self.inference_precision.addItem("FP16", "fp16")
         self.inference_precision.addItem("FP32", "fp32")
         self.inference_batch_size = _int_spin(16, 1, 64, " 帧")
@@ -543,7 +554,7 @@ class MainWindow(QMainWindow):
             ("GPU 批量", "RTX 4060 8 GB 推荐 16；过大可能增加显存压力。", self.inference_batch_size),
         ]
         for index, (title, note, control) in enumerate(specs):
-            grid.addWidget(ParameterTile(title, note, control), index // 4, index % 4)
+            grid.addWidget(ParameterTile(title, note, control), index // 5, index % 5)
 
         limit_box = QFrame()
         limit_box.setObjectName("parameterTile")
@@ -561,7 +572,7 @@ class MainWindow(QMainWindow):
         hint = QLabel("适合快速试跑和调参；关闭后分析完整视频。")
         hint.setObjectName("parameterNote")
         limit_layout.addWidget(hint)
-        grid.addWidget(limit_box, 3, 0, 1, 4)
+        grid.addWidget(limit_box, 2, 0, 1, 5)
 
         layout.addLayout(grid)
         return card
@@ -573,8 +584,8 @@ class MainWindow(QMainWindow):
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("任务开始后，这里会显示环境检查和每个视频的处理结果。")
         self.log.setMaximumBlockCount(2000)
-        self.log.setMinimumHeight(120)
-        self.log.setMaximumHeight(180)
+        self.log.setMinimumHeight(82)
+        self.log.setMaximumHeight(120)
         layout.addWidget(self.log)
         return card
 
@@ -908,7 +919,7 @@ def _double_spin(
     control.setSingleStep(0.5)
     control.setValue(value)
     control.setSuffix(suffix)
-    control.setMinimumWidth(124)
+    control.setMinimumWidth(102)
     control.setMinimumHeight(40)
     return control
 
@@ -918,7 +929,7 @@ def _int_spin(value: int, minimum: int, maximum: int, suffix: str) -> QSpinBox:
     control.setRange(minimum, maximum)
     control.setValue(value)
     control.setSuffix(suffix)
-    control.setMinimumWidth(124)
+    control.setMinimumWidth(102)
     control.setMinimumHeight(40)
     return control
 
