@@ -79,6 +79,7 @@ from tennis_video_helper.review import (
     load_review_session,
     publish_review_session,
 )
+from tennis_video_helper.runtime_tools import subprocess_no_window_kwargs
 
 
 VIDEO_FILE_FILTER = (
@@ -689,7 +690,7 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.select_none_action)
 
         view_menu = self.menuBar().addMenu("视图(&V)")
-        self.parameters_action = QAction("显示常规参数", self)
+        self.parameters_action = QAction("参数调节", self)
         self.parameters_action.setCheckable(True)
         self.parameters_action.toggled.connect(self._set_parameter_panel_visible)
         view_menu.addAction(self.parameters_action)
@@ -712,12 +713,14 @@ class MainWindow(QMainWindow):
         self.auto_button.setObjectName("modeButton")
         self.auto_button.setCheckable(True)
         self.auto_button.setChecked(True)
+        self.auto_button.setToolTip("分析视频、预览候选片段并选择要导出的内容")
         self.auto_button.clicked.connect(
             lambda _checked=False: self.parameters_action.setChecked(False)
         )
-        self.settings_button = QPushButton("常规")
+        self.settings_button = QPushButton("参数调节")
         self.settings_button.setObjectName("modeButton")
         self.settings_button.setCheckable(True)
+        self.settings_button.setToolTip("调节识别、GPU 和导出参数")
         self.settings_button.clicked.connect(
             lambda checked=False: self.parameters_action.setChecked(checked)
         )
@@ -826,6 +829,33 @@ class MainWindow(QMainWindow):
         self.preview_stack.addWidget(self.video_widget)
         preview_column.addWidget(self.preview_stack, 1)
 
+        self.analysis_feedback = QFrame()
+        self.analysis_feedback.setObjectName("analysisFeedback")
+        feedback_layout = QVBoxLayout(self.analysis_feedback)
+        feedback_layout.setContentsMargins(12, 9, 12, 10)
+        feedback_layout.setSpacing(5)
+        feedback_header = QHBoxLayout()
+        self.analysis_feedback_title = QLabel("正在分析当前视频")
+        self.analysis_feedback_title.setObjectName("analysisFeedbackTitle")
+        self.analysis_feedback_percent = QLabel("0.0%")
+        self.analysis_feedback_percent.setObjectName("analysisFeedbackPercent")
+        feedback_header.addWidget(self.analysis_feedback_title)
+        feedback_header.addStretch()
+        feedback_header.addWidget(self.analysis_feedback_percent)
+        feedback_layout.addLayout(feedback_header)
+        self.analysis_feedback_phase = QLabel("正在准备分析环境")
+        self.analysis_feedback_phase.setObjectName("analysisFeedbackPhase")
+        feedback_layout.addWidget(self.analysis_feedback_phase)
+        self.analysis_progress = QProgressBar()
+        self.analysis_progress.setRange(0, 1000)
+        self.analysis_progress.setValue(0)
+        self.analysis_progress.setFormat("0.0%")
+        self.analysis_progress.setTextVisible(True)
+        self.analysis_progress.setFixedHeight(20)
+        feedback_layout.addWidget(self.analysis_progress)
+        self.analysis_feedback.setVisible(False)
+        preview_column.addWidget(self.analysis_feedback)
+
         self.hit_timeline = HitTimeline()
         self.hit_timeline.seekRequested.connect(self._seek_preview)
         preview_column.addWidget(self.hit_timeline)
@@ -858,23 +888,25 @@ class MainWindow(QMainWindow):
         status_layout.setContentsMargins(18, 18, 18, 18)
         status_layout.setSpacing(6)
 
-        button_row = QHBoxLayout()
+        self.start_button = QPushButton("分析候选")
+        self.start_button.setObjectName("primaryButton")
+        self.start_button.setMinimumHeight(48)
+        self.start_button.setMinimumWidth(120)
+        self.start_button.clicked.connect(self._start_analysis)
+        status_layout.addWidget(self.start_button)
+
+        secondary_button_row = QHBoxLayout()
         self.optimize_button = QPushButton("检测并优化")
         self.optimize_button.setObjectName("optimizeButton")
         self.optimize_button.setMinimumHeight(48)
         self.optimize_button.clicked.connect(self._start_optimization)
-        self.start_button = QPushButton("分析候选")
-        self.start_button.setObjectName("primaryButton")
-        self.start_button.setMinimumHeight(48)
-        self.start_button.clicked.connect(self._start_analysis)
         self.stop_button = QPushButton("停止任务")
         self.stop_button.setObjectName("dangerButton")
         self.stop_button.setMinimumHeight(48)
         self.stop_button.clicked.connect(self._stop_analysis)
-        button_row.addWidget(self.optimize_button, 2)
-        button_row.addWidget(self.start_button, 2)
-        button_row.addWidget(self.stop_button, 1)
-        status_layout.addLayout(button_row)
+        secondary_button_row.addWidget(self.optimize_button)
+        secondary_button_row.addWidget(self.stop_button)
+        status_layout.addLayout(secondary_button_row)
 
         self.acceleration_label = QLabel("GPU 加速：等待任务检查")
         self.acceleration_label.setObjectName("accelerationStatus")
@@ -926,8 +958,9 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_parameter_card(self) -> QFrame:
-        card = _card("常用分析参数")
+        card = _card("分析参数")
         layout = card.layout()
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
@@ -1160,7 +1193,7 @@ class MainWindow(QMainWindow):
             command,
             capture_output=True,
             check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **subprocess_no_window_kwargs(),
         )
         if result.returncode != 0 and self.process.state() != QProcess.ProcessState.NotRunning:
             self.process.kill()
@@ -1255,6 +1288,10 @@ class MainWindow(QMainWindow):
         self.percent_label.setText(f"{percent:.0f}%")
         phase = str(payload.get("phase") or "处理中")
         self.phase_label.setText(phase)
+        self.analysis_progress.setValue(round(percent * 10))
+        self.analysis_progress.setFormat(f"{percent:.1f}%")
+        self.analysis_feedback_percent.setText(f"{percent:.1f}%")
+        self.analysis_feedback_phase.setText(phase)
 
         video_index = int(payload.get("video_index") or 0)
         video_total = int(payload.get("video_total") or 0)
@@ -1262,7 +1299,9 @@ class MainWindow(QMainWindow):
             self.video_count_label.setText(f"第 {video_index}/{video_total} 个视频")
         current_video = payload.get("current_video")
         if current_video:
-            self._show_video_preview(Path(str(current_video)))
+            current_path = Path(str(current_video))
+            self._show_video_preview(current_path)
+            self.analysis_feedback_title.setText(f"正在分析：{current_path.name}")
         self.task_summary_label.setText(
             f"{phase} · {self.current_video_label.text()}"
             if self.current_video_label.text()
@@ -1361,8 +1400,19 @@ class MainWindow(QMainWindow):
         if running:
             self.status_badge.setText("●  正在处理")
             self.progress.setRange(0, 1000)
+            self.analysis_feedback.setVisible(True)
+            self.analysis_feedback_title.setText(
+                "正在检测和优化本机性能"
+                if self._process_mode == "optimization"
+                else "正在分析当前视频"
+            )
+            self.analysis_feedback_phase.setText(self.phase_label.text())
+            self.analysis_feedback_percent.setText(f"{self._progress_percent:.1f}%")
+            self.analysis_progress.setValue(round(self._progress_percent * 10))
+            self.analysis_progress.setFormat(f"{self._progress_percent:.1f}%")
         else:
             self.progress.setRange(0, 1000)
+            self.analysis_feedback.setVisible(False)
             if not self.status_badge.text():
                 self.status_badge.setText("●  等待任务")
 
@@ -1577,6 +1627,7 @@ class MainWindow(QMainWindow):
         self.media_player.stop()
         self.media_player.setSource(QUrl())
         self._current_candidate_id = None
+        self._preview_path = None
         self.preview.set_source_pixmap(None)
         self.preview.setText(message)
         self.preview_stack.setCurrentWidget(self.preview)
@@ -1815,6 +1866,9 @@ def _card(title: str) -> QFrame:
     layout.setSpacing(9)
     label = QLabel(title)
     label.setObjectName("sectionTitle")
+    label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+    label.setFixedHeight(24)
     layout.addWidget(label)
     return card
 
@@ -2036,6 +2090,14 @@ QFrame#reviewPanel, QFrame#previewPanel {
     border: 1px solid #2c3035;
     border-radius: 12px;
 }
+QFrame#analysisFeedback {
+    background: #111410;
+    border: 1px solid rgba(185, 244, 90, 0.36);
+    border-radius: 10px;
+}
+QLabel#analysisFeedbackTitle { color: #f3f5f1; font-weight: 700; }
+QLabel#analysisFeedbackPercent { color: #b9f45a; font-weight: 700; }
+QLabel#analysisFeedbackPhase { color: #9da59a; font-size: 11px; }
 QListWidget#candidateList {
     color: #eef1f3;
     background: #0d0f11;

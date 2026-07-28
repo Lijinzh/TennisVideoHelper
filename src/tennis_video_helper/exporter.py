@@ -10,7 +10,10 @@ from pathlib import Path
 from tennis_video_helper.config import AnalysisConfig
 from tennis_video_helper.media import probe_media
 from tennis_video_helper.models import MediaInfo, RallySegment
-from tennis_video_helper.runtime_tools import media_executable
+from tennis_video_helper.runtime_tools import (
+    media_executable,
+    subprocess_no_window_kwargs,
+)
 
 
 class ExportError(RuntimeError):
@@ -197,7 +200,13 @@ def export_clip(
     )
     command = build_ffmpeg_command(media, segment, encoded_target, config)
     try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            **subprocess_no_window_kwargs(),
+        )
         if media.rotation:
             signed_rotation = (
                 media.rotation if media.rotation <= 180 else media.rotation - 360
@@ -225,6 +234,7 @@ def export_clip(
                 check=True,
                 capture_output=True,
                 text=True,
+                **subprocess_no_window_kwargs(),
             )
         staging_target.replace(target)
     except FileNotFoundError as exc:
@@ -333,7 +343,12 @@ def verify_clip(
             "null",
             os.devnull,
         ]
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            **subprocess_no_window_kwargs(),
+        )
         if result.returncode != 0:
             return False, "片段头尾解码检查失败"
     return True, None
@@ -367,6 +382,7 @@ def _probe_frame_timestamps(
         text=True,
         encoding="utf-8",
         errors="replace",
+        **subprocess_no_window_kwargs(),
     )
     payload = json.loads(result.stdout)
     timestamps: list[float] = []

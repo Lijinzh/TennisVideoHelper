@@ -17,7 +17,11 @@ from typing import Callable, Iterable
 from tennis_video_helper.config import AnalysisConfig
 from tennis_video_helper.media import scan_videos
 from tennis_video_helper.models import VisualEvent
-from tennis_video_helper.runtime_tools import media_executable, media_tool_available
+from tennis_video_helper.runtime_tools import (
+    media_executable,
+    media_tool_available,
+    subprocess_no_window_kwargs,
+)
 
 
 PROFILE_VERSION = 1
@@ -407,7 +411,7 @@ def _run_text(command: list[str]) -> str:
             encoding="utf-8",
             errors="replace",
             timeout=20,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **subprocess_no_window_kwargs(),
         )
     except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return ""

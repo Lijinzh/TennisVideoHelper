@@ -5,7 +5,7 @@ import time
 import pytest
 from PySide6.QtCore import QProcess, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -343,12 +343,48 @@ def test_standard_menu_contains_input_output_and_parameter_actions() -> None:
     assert any("编辑" in title for title in menu_titles)
     assert any("视图" in title for title in menu_titles)
     assert any("帮助" in title for title in menu_titles)
+    assert window.settings_button.text() == "参数调节"
+    assert window.parameters_action.text() == "参数调节"
     assert window.parameter_card.isHidden() is True
 
     QTest.mouseClick(window.settings_button, Qt.MouseButton.LeftButton)
     assert window.parameter_card.isVisible() is True
     assert window.settings_button.isChecked() is True
     assert window.workbench_card.isHidden() is True
+
+    window.close()
+    app.processEvents()
+
+
+def test_primary_analysis_button_is_not_clipped_in_compact_window() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.resize(1100, 760)
+    window.show()
+    app.processEvents()
+
+    text_width = window.start_button.fontMetrics().horizontalAdvance(
+        window.start_button.text()
+    )
+    assert window.start_button.width() >= text_width + 32
+
+    window.close()
+    app.processEvents()
+
+
+def test_parameter_page_content_stays_aligned_to_top() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.resize(1440, 920)
+    window.show()
+    window.parameters_action.setChecked(True)
+    app.processEvents()
+
+    section_title = window.parameter_card.findChild(QLabel, "sectionTitle")
+    first_tile = window.findChildren(ParameterTile)[0]
+    assert section_title is not None
+    assert section_title.height() == 24
+    assert first_tile.geometry().top() - section_title.geometry().bottom() < 24
 
     window.close()
     app.processEvents()
@@ -453,6 +489,8 @@ def test_progress_payload_updates_visible_status() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
     window._started_at = time.monotonic() - 20
+    window._process_mode = "analysis"
+    window._set_running(True)
 
     window._apply_progress(
         {
@@ -470,6 +508,9 @@ def test_progress_payload_updates_visible_status() -> None:
     assert window.phase_label.text() == "GPU 分析画面"
     assert window.video_count_label.text() == "第 2/4 个视频"
     assert window.eta_label.text() != "正在估算"
+    assert window.analysis_feedback.isHidden() is False
+    assert window.analysis_progress.value() == 425
+    assert window.analysis_feedback_phase.text() == "GPU 分析画面"
 
     window.close()
     app.processEvents()

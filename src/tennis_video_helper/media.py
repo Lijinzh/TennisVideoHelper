@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from tennis_video_helper.models import MediaInfo, MediaProbeError
-from tennis_video_helper.runtime_tools import media_executable
+from tennis_video_helper.runtime_tools import (
+    media_executable,
+    subprocess_no_window_kwargs,
+)
 
 SUPPORTED_VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".mkv", ".m4v"})
 
@@ -52,6 +55,7 @@ def probe_media(path: Path) -> MediaInfo:
             text=True,
             encoding="utf-8",
             errors="replace",
+            **subprocess_no_window_kwargs(),
         )
         payload = json.loads(result.stdout)
     except FileNotFoundError as exc:

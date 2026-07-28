@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 from tennis_video_helper import runtime_tools
 
@@ -22,3 +23,18 @@ def test_media_executable_falls_back_to_command_name(monkeypatch, tmp_path: Path
     )
 
     assert runtime_tools.media_executable("ffmpeg") == "ffmpeg"
+
+
+def test_subprocess_no_window_kwargs_hides_helpers_on_windows(monkeypatch) -> None:
+    monkeypatch.setattr(runtime_tools.os, "name", "nt")
+    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+
+    assert runtime_tools.subprocess_no_window_kwargs() == {
+        "creationflags": 0x08000000
+    }
+
+
+def test_subprocess_no_window_kwargs_is_empty_off_windows(monkeypatch) -> None:
+    monkeypatch.setattr(runtime_tools.os, "name", "posix")
+
+    assert runtime_tools.subprocess_no_window_kwargs() == {}

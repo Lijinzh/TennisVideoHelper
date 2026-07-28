@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -39,6 +40,14 @@ def media_tool_available(name: str) -> bool:
 
     executable = media_executable(name)
     return Path(executable).is_file() or shutil.which(executable) is not None
+
+
+def subprocess_no_window_kwargs() -> dict[str, int]:
+    """Return flags that keep helper executables hidden on Windows."""
+
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 def _runtime_directories() -> tuple[Path, ...]:

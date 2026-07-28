@@ -86,7 +86,7 @@ worker_exe = EXE(
     exclude_binaries=True,
     name="TennisVideoHelperWorker",
     icon=str(project_root / "assets" / "app_icon.ico"),
-    console=True,
+    console=False,
     optimize=1,
 )
 

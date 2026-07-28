@@ -18,7 +18,11 @@ from tennis_video_helper.pipeline import (
     prepare_review_batch,
     process_batch,
 )
-from tennis_video_helper.runtime_tools import media_executable, media_tool_available
+from tennis_video_helper.runtime_tools import (
+    media_executable,
+    media_tool_available,
+    subprocess_no_window_kwargs,
+)
 
 PROGRESS_PREFIX = "TVH_PROGRESS "
 ACCELERATION_PREFIX = "TVH_ACCELERATION "
@@ -351,6 +355,7 @@ def _check_runtime(*, require_gpu: bool = False) -> RuntimeCapabilities:
         text=True,
         encoding="utf-8",
         errors="replace",
+        **subprocess_no_window_kwargs(),
     )
     if encoder_check.returncode != 0:
         raise RuntimeError("无法读取 FFmpeg 编码器列表")

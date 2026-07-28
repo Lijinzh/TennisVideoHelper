@@ -10,7 +10,10 @@ import soundfile as sf
 
 from tennis_video_helper.config import AnalysisConfig
 from tennis_video_helper.models import AudioEvent
-from tennis_video_helper.runtime_tools import media_executable
+from tennis_video_helper.runtime_tools import (
+    media_executable,
+    subprocess_no_window_kwargs,
+)
 
 
 class AudioAnalysisError(RuntimeError):
@@ -39,7 +42,13 @@ def extract_audio(source: Path, target: Path, *, sample_rate: int) -> None:
         str(target),
     ]
     try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
+        subprocess.run(
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+            **subprocess_no_window_kwargs(),
+        )
     except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         raise AudioAnalysisError(f"无法提取音轨：{source}") from exc
 
