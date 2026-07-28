@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import codecs
 import ctypes
+from dataclasses import dataclass, replace
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
@@ -49,6 +51,11 @@ from PySide6.QtWidgets import (
 
 from tennis_video_helper.cli import ACCELERATION_PREFIX, PROGRESS_PREFIX
 from tennis_video_helper.media import SUPPORTED_VIDEO_EXTENSIONS, scan_videos
+from tennis_video_helper.optimizer import (
+    OPTIMIZATION_PREFIX,
+    OptimizationProfile,
+    load_profile,
+)
 
 
 VIDEO_FILE_FILTER = (
@@ -56,6 +63,7 @@ VIDEO_FILE_FILTER = (
     + " ".join(f"*{extension}" for extension in sorted(SUPPORTED_VIDEO_EXTENSIONS))
     + ");;所有文件 (*)"
 )
+WINDOWS_APP_USER_MODEL_ID = "TennisVideoHelper.Desktop.0.1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +84,7 @@ class AnalysisFormValues:
     inference_precision: str = "fp16"
     inference_batch_size: int = 16
     require_gpu: bool = False
+    export_original_quality: bool = False
     overwrite_existing_output: bool = True
 
 
@@ -113,6 +122,11 @@ def build_analyze_arguments(values: AnalysisFormValues) -> list[str]:
     ]
     arguments.append("--require-gpu" if values.require_gpu else "--allow-cpu")
     arguments.append(
+        "--original-quality"
+        if values.export_original_quality
+        else "--1080p-output"
+    )
+    arguments.append(
         "--overwrite-existing"
         if values.overwrite_existing_output
         else "--keep-existing"
@@ -122,16 +136,105 @@ def build_analyze_arguments(values: AnalysisFormValues) -> list[str]:
     return arguments
 
 
+def build_optimize_arguments(input_path: Path, benchmark_seconds: float = 60.0) -> list[str]:
+    """构造本机硬件自动优化命令。"""
+
+    return [
+        "-m",
+        "tennis_video_helper.cli",
+        "optimize",
+        str(input_path),
+        "--benchmark-seconds",
+        _number(benchmark_seconds),
+        "--progress-json",
+    ]
+
+
+def process_invocation(arguments: list[str]) -> tuple[str, list[str]]:
+    """Use the packaged worker executable when running from a frozen GUI."""
+
+    if getattr(sys, "frozen", False):
+        worker = Path(sys.executable).with_name("TennisVideoHelperWorker.exe")
+        return str(worker), arguments[2:]
+    return sys.executable, arguments
+
+
 def _number(value: float) -> str:
     return f"{value:g}"
+
+
+def decode_utf8_chunks(chunks: list[bytes]) -> str:
+    """Decode arbitrarily split UTF-8 chunks without corrupting multibyte text."""
+
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    text = "".join(decoder.decode(chunk, final=False) for chunk in chunks)
+    return text + decoder.decode(b"", final=True)
+
+
+class MixedProcessOutputDecoder:
+    """解码后台进程混合输出的 UTF-8 和 Windows UTF-16LE 日志。"""
+
+    def __init__(self) -> None:
+        self._buffer = bytearray()
+
+    def decode(self, data: bytes, *, final: bool = False) -> str:
+        self._buffer.extend(data)
+        decoded: list[str] = []
+        while self._buffer:
+            is_utf16 = self._looks_like_utf16le(self._buffer)
+            delimiter = b"\n\x00" if is_utf16 else b"\n"
+            line_end = self._buffer.find(delimiter)
+            if line_end < 0 and not final:
+                break
+            take = len(self._buffer) if line_end < 0 else line_end + len(delimiter)
+            payload = bytes(self._buffer[:take])
+            del self._buffer[:take]
+            if is_utf16:
+                if len(payload) % 2:
+                    payload += b"\x00"
+                decoded.append(payload.decode("utf-16-le", errors="replace"))
+            else:
+                decoded.append(payload.decode("utf-8", errors="replace"))
+        return "".join(decoded)
+
+    @staticmethod
+    def _looks_like_utf16le(data: bytes | bytearray) -> bool:
+        probe = bytes(data[:160])
+        if len(probe) < 4:
+            return False
+        odd_bytes = probe[1::2]
+        even_bytes = probe[0::2]
+        odd_nulls = odd_bytes.count(0)
+        even_nulls = even_bytes.count(0)
+        return odd_nulls >= 2 and odd_nulls > even_nulls * 2
 
 
 def _cuda_available() -> bool:
     try:
         import torch
     except ImportError:
-        return False
+        try:
+            import onnxruntime as ort
+
+            return bool(
+                set(ort.get_available_providers())
+                & {
+                    "TensorrtExecutionProvider",
+                    "CUDAExecutionProvider",
+                    "DmlExecutionProvider",
+                }
+            )
+        except (ImportError, OSError):
+            return False
     return bool(torch.cuda.is_available())
+
+
+def _cuda_device_name() -> str | None:
+    try:
+        import torch
+    except ImportError:
+        return "ONNX GPU" if _cuda_available() else None
+    return torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
 
 
 def parse_paths(input_text: str, output_text: str) -> tuple[Path, Path]:
@@ -183,6 +286,16 @@ def parse_acceleration_line(line: str) -> dict[str, object] | None:
         return None
     try:
         payload = json.loads(line[len(ACCELERATION_PREFIX) :])
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def parse_optimization_line(line: str) -> dict[str, object] | None:
+    if not line.startswith(OPTIMIZATION_PREFIX):
+        return None
+    try:
+        payload = json.loads(line[len(OPTIMIZATION_PREFIX) :])
     except json.JSONDecodeError:
         return None
     return payload if isinstance(payload, dict) else None
@@ -332,8 +445,11 @@ class MainWindow(QMainWindow):
         self._stopping = False
         self._progress_percent = 0.0
         self._process_output_buffer = ""
+        self._process_output_decoder = MixedProcessOutputDecoder()
         self._preview_path: Path | None = None
         self._acceleration_status: dict[str, object] = {}
+        self._process_mode = "analysis"
+        self._optimization_profile: OptimizationProfile | None = None
 
         self.elapsed_timer = QTimer(self)
         self.elapsed_timer.setInterval(1000)
@@ -364,8 +480,8 @@ class MainWindow(QMainWindow):
         root.addWidget(self.workbench_card)
         self.parameter_card = self._build_parameter_card()
         root.addWidget(self.parameter_card)
-        root.addStretch(1)
 
+        self._load_saved_optimization()
         self._set_running(False)
         QTimer.singleShot(0, self._refresh_input_preview)
         QTimer.singleShot(0, self._show_initial_view)
@@ -390,7 +506,7 @@ class MainWindow(QMainWindow):
             + self.root_layout.spacing() * 2
         )
         target = self.page_scroll.viewport().height() - fixed_height
-        self.workbench_card.setFixedHeight(max(352, min(400, target)))
+        self.workbench_card.setFixedHeight(max(352, target))
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
@@ -462,6 +578,10 @@ class MainWindow(QMainWindow):
         status_layout.setSpacing(6)
 
         button_row = QHBoxLayout()
+        self.optimize_button = QPushButton("检测并优化")
+        self.optimize_button.setObjectName("optimizeButton")
+        self.optimize_button.setMinimumHeight(48)
+        self.optimize_button.clicked.connect(self._start_optimization)
         self.start_button = QPushButton("开始筛选")
         self.start_button.setObjectName("primaryButton")
         self.start_button.setMinimumHeight(48)
@@ -470,6 +590,7 @@ class MainWindow(QMainWindow):
         self.stop_button.setObjectName("dangerButton")
         self.stop_button.setMinimumHeight(48)
         self.stop_button.clicked.connect(self._stop_analysis)
+        button_row.addWidget(self.optimize_button, 2)
         button_row.addWidget(self.start_button, 2)
         button_row.addWidget(self.stop_button, 1)
         status_layout.addLayout(button_row)
@@ -586,6 +707,7 @@ class MainWindow(QMainWindow):
         self.inference_backend.setMinimumHeight(40)
         self.inference_backend.setMinimumWidth(102)
         self.inference_backend.addItem("自动", "auto")
+        self.inference_backend.addItem("轻量 ONNX GPU", "onnx")
         self.inference_backend.addItem("TensorRT", "tensorrt")
         self.inference_backend.addItem("PyTorch CUDA", "torch")
         self.inference_precision = QComboBox()
@@ -619,6 +741,11 @@ class MainWindow(QMainWindow):
         self.limit_minutes.setEnabled(False)
         self.limit_check.toggled.connect(self.limit_minutes.setEnabled)
         self.require_gpu = QCheckBox("缺少 GPU 时直接停止")
+        self.export_original_quality = QCheckBox("以原画质导出")
+        self.export_original_quality.setChecked(False)
+        self.export_original_quality.setToolTip(
+            "未勾选时，超过 1080p 的视频会缩小到 1080p，并保持原始帧率；不会放大低分辨率视频。"
+        )
         self.overwrite_existing_output = QCheckBox("覆盖同名旧结果")
         self.overwrite_existing_output.setChecked(True)
         self.overwrite_existing_output.setToolTip(
@@ -627,11 +754,16 @@ class MainWindow(QMainWindow):
         limit_layout.addWidget(self.limit_check)
         limit_layout.addWidget(self.limit_minutes)
         limit_layout.addWidget(self.require_gpu)
+        limit_layout.addWidget(self.export_original_quality)
         limit_layout.addWidget(self.overwrite_existing_output)
         limit_layout.addStretch()
-        hint = QLabel("适合快速试跑和调参；关闭后分析完整视频。")
-        hint.setObjectName("parameterNote")
-        limit_layout.addWidget(hint)
+        self.export_quality_hint = QLabel()
+        self.export_quality_hint.setObjectName("parameterNote")
+        limit_layout.addWidget(self.export_quality_hint)
+        self.export_original_quality.toggled.connect(
+            self._update_export_quality_hint
+        )
+        self._update_export_quality_hint(False)
         grid.addWidget(limit_box, 2, 0, 1, 5)
 
         layout.addLayout(grid)
@@ -669,7 +801,15 @@ class MainWindow(QMainWindow):
             inference_precision=str(self.inference_precision.currentData()),
             inference_batch_size=self.inference_batch_size.value(),
             require_gpu=self.require_gpu.isChecked(),
+            export_original_quality=self.export_original_quality.isChecked(),
             overwrite_existing_output=self.overwrite_existing_output.isChecked(),
+        )
+
+    def _update_export_quality_hint(self, original_quality: bool) -> None:
+        self.export_quality_hint.setText(
+            "原画质：保留源分辨率，4K 导出会明显更慢。"
+            if original_quality
+            else "默认：最高 1080p，保持原始帧率，适合抖音。"
         )
 
     def _start_analysis(self) -> None:
@@ -681,6 +821,13 @@ class MainWindow(QMainWindow):
         if not values.input_path.exists():
             QMessageBox.warning(self, "路径无效", "请选择存在的视频或文件夹。")
             return
+        if not values.export_original_quality:
+            QMessageBox.information(
+                self,
+                "默认 1080p 导出",
+                "当前未勾选“以原画质导出”。本次会把超过 1080p 的视频缩小到 1080p，"
+                "并保持原始帧率；1080p 或更低的视频不会放大。",
+            )
         if not values.require_gpu and not _cuda_available():
             answer = QMessageBox.question(
                 self,
@@ -700,19 +847,27 @@ class MainWindow(QMainWindow):
             if values.overwrite_existing_output
             else "同名结果：保留旧结果并创建编号目录"
         )
+        self._append_log(
+            "导出画质：保持源分辨率和原始帧率"
+            if values.export_original_quality
+            else "导出画质：默认最高 1080p，保持原始帧率"
+        )
         self._append_log("正在检查 FFmpeg、NVENC 与 CUDA 环境……")
 
         environment = QProcessEnvironment.systemEnvironment()
         environment.insert("PYTHONUTF8", "1")
+        environment.insert("PYTHONIOENCODING", "utf-8")
         environment.insert("PYTHONUNBUFFERED", "1")
         environment.insert("NO_COLOR", "1")
         self.process.setProcessEnvironment(environment)
         self.process.setWorkingDirectory(str(Path.cwd()))
 
         self._stopping = False
+        self._process_mode = "analysis"
         self._started_at = time.monotonic()
         self._progress_percent = 0.0
         self._process_output_buffer = ""
+        self._process_output_decoder = MixedProcessOutputDecoder()
         self._acceleration_status = {}
         self._set_acceleration_label("pending", "GPU 加速：正在检查……")
         self.progress.setValue(0)
@@ -722,7 +877,48 @@ class MainWindow(QMainWindow):
         self.eta_label.setText("正在估算")
         self.elapsed_timer.start()
         self._set_running(True)
-        self.process.start(sys.executable, build_analyze_arguments(values))
+        program, arguments = process_invocation(build_analyze_arguments(values))
+        self.process.start(program, arguments)
+
+    def _start_optimization(self) -> None:
+        try:
+            values = self._form_values()
+        except ValueError as exc:
+            QMessageBox.warning(self, "路径无效", str(exc))
+            return
+        if not values.input_path.exists():
+            QMessageBox.warning(self, "路径无效", "请先选择用于基准测试的视频或文件夹。")
+            return
+
+        self.log.clear()
+        self._append_log(f"开始检测并优化：{values.input_path}")
+        self._append_log("将测试可用推理后端和多个批量，首次构建 TensorRT 引擎可能需要数分钟。")
+        environment = QProcessEnvironment.systemEnvironment()
+        environment.insert("PYTHONUTF8", "1")
+        environment.insert("PYTHONIOENCODING", "utf-8")
+        environment.insert("PYTHONUNBUFFERED", "1")
+        environment.insert("NO_COLOR", "1")
+        self.process.setProcessEnvironment(environment)
+        self.process.setWorkingDirectory(str(Path.cwd()))
+
+        self._stopping = False
+        self._process_mode = "optimization"
+        self._started_at = time.monotonic()
+        self._progress_percent = 0.0
+        self._process_output_buffer = ""
+        self._process_output_decoder = MixedProcessOutputDecoder()
+        self.progress.setValue(0)
+        self.progress.setFormat("0.0%")
+        self.percent_label.setText("0%")
+        self.phase_label.setText("检测硬件与运行时")
+        self.eta_label.setText("正在估算")
+        self._set_acceleration_label("pending", "本机优化：正在检测硬件……")
+        self.elapsed_timer.start()
+        self._set_running(True)
+        program, arguments = process_invocation(
+            build_optimize_arguments(values.input_path)
+        )
+        self.process.start(program, arguments)
 
     def _stop_analysis(self) -> None:
         if self.process.state() == QProcess.ProcessState.NotRunning:
@@ -757,7 +953,8 @@ class MainWindow(QMainWindow):
             self.process.kill()
 
     def _read_process_output(self) -> None:
-        text = bytes(self.process.readAllStandardOutput()).decode("utf-8", errors="replace")
+        data = bytes(self.process.readAllStandardOutput())
+        text = self._process_output_decoder.decode(data, final=False)
         if not text:
             return
         self._process_output_buffer += text
@@ -766,6 +963,10 @@ class MainWindow(QMainWindow):
             self._handle_process_line(line.rstrip("\r"))
 
     def _handle_process_line(self, line: str) -> None:
+        optimization = parse_optimization_line(line)
+        if optimization is not None:
+            self._apply_optimization_result(optimization)
+            return
         acceleration = parse_acceleration_line(line)
         if acceleration is not None:
             self._apply_acceleration_status(acceleration)
@@ -844,11 +1045,31 @@ class MainWindow(QMainWindow):
 
     def _process_finished(self, exit_code: int, _status) -> None:
         self._read_process_output()
+        self._process_output_buffer += self._process_output_decoder.decode(b"", final=True)
         if self._process_output_buffer:
             self._handle_process_line(self._process_output_buffer.rstrip("\r"))
             self._process_output_buffer = ""
+        self._process_output_decoder = MixedProcessOutputDecoder()
         self.elapsed_timer.stop()
         self._set_running(False)
+        if self._process_mode == "optimization":
+            if self._stopping:
+                self.status_badge.setText("●  优化已停止")
+                self._append_log("本机性能优化已停止，旧配置保持不变。")
+            elif exit_code == 0:
+                self.status_badge.setText("●  优化完成")
+                self._progress_percent = 100.0
+                self.progress.setValue(1000)
+                self.progress.setFormat("100.0%")
+                self.percent_label.setText("100%")
+                self.phase_label.setText("本机性能优化完成")
+                self.eta_label.setText("已完成")
+                self._append_log("最快且通过一致性检查的配置已自动应用。")
+            else:
+                self.status_badge.setText("●  优化失败")
+                self._append_log(f"本机性能优化异常结束，退出代码：{exit_code}")
+            self._process_mode = "analysis"
+            return
         if self._stopping:
             self.status_badge.setText("●  已停止")
             self._append_log("任务已停止；已有成功结果不会被覆盖。")
@@ -873,6 +1094,7 @@ class MainWindow(QMainWindow):
             self._append_log(f"无法启动后台任务：{self.process.errorString()}")
 
     def _set_running(self, running: bool) -> None:
+        self.optimize_button.setEnabled(not running)
         self.start_button.setEnabled(not running)
         self.stop_button.setEnabled(running)
         self.input_edit.setEnabled(not running)
@@ -884,6 +1106,101 @@ class MainWindow(QMainWindow):
             self.progress.setRange(0, 1000)
             if not self.status_badge.text():
                 self.status_badge.setText("●  等待任务")
+
+    def _load_saved_optimization(self) -> None:
+        profile = load_profile()
+        if profile is None:
+            return
+        if profile.hardware.cuda_device_name != _cuda_device_name():
+            self._set_acceleration_label(
+                "pending",
+                "本机优化：硬件已变化，请重新检测并优化",
+            )
+            return
+        if (
+            profile.inference_backend == "tensorrt"
+            and importlib.util.find_spec("tensorrt") is None
+        ):
+            torch_results = [
+                result
+                for result in profile.results
+                if result.backend == "torch"
+                and result.valid
+                and result.elapsed_seconds is not None
+            ]
+            if not torch_results:
+                return
+            best = min(
+                torch_results,
+                key=lambda item: item.elapsed_seconds or float("inf"),
+            )
+            profile = replace(
+                profile,
+                inference_backend=best.backend,
+                inference_precision=best.precision,
+                inference_batch_size=best.batch_size,
+            )
+        self._optimization_profile = profile
+        self._apply_profile_controls(profile)
+        hardware = profile.hardware.cuda_device_name or "当前设备"
+        self._set_acceleration_label(
+            "enabled" if profile.hardware.cuda_available else "cpu",
+            "本机优化：已加载\n"
+            f"{hardware} · {profile.inference_backend} "
+            f"{profile.inference_precision.upper()} · 批量 {profile.inference_batch_size}",
+        )
+
+    def _apply_optimization_result(self, payload: dict[str, object]) -> None:
+        try:
+            hardware_payload = payload["hardware"]
+            results_payload = payload.get("results", [])
+            if not isinstance(hardware_payload, dict) or not isinstance(results_payload, list):
+                return
+            from tennis_video_helper.optimizer import HardwareSnapshot, BenchmarkResult
+
+            profile = OptimizationProfile(
+                **{
+                    **payload,
+                    "hardware": HardwareSnapshot(**hardware_payload),
+                    "results": tuple(BenchmarkResult(**item) for item in results_payload),
+                }
+            )
+        except (KeyError, TypeError, ValueError):
+            return
+        self._optimization_profile = profile
+        self._apply_profile_controls(profile)
+        best = next(
+            (
+                item
+                for item in profile.results
+                if item.backend == profile.inference_backend
+                and item.precision == profile.inference_precision
+                and item.batch_size == profile.inference_batch_size
+            ),
+            None,
+        )
+        speed = f" · {best.realtime_factor:.1f}×实时" if best and best.realtime_factor else ""
+        device = profile.hardware.cuda_device_name or "CPU"
+        self._set_acceleration_label(
+            "enabled" if profile.hardware.cuda_available else "cpu",
+            "本机优化：已完成\n"
+            f"{device} · {profile.inference_backend} "
+            f"{profile.inference_precision.upper()} · 批量 {profile.inference_batch_size}{speed}",
+        )
+        self._append_log(
+            "已选择最快可靠配置："
+            f"{profile.inference_backend} {profile.inference_precision.upper()}，"
+            f"批量 {profile.inference_batch_size}{speed}。"
+        )
+
+    def _apply_profile_controls(self, profile: OptimizationProfile) -> None:
+        backend_index = self.inference_backend.findData(profile.inference_backend)
+        if backend_index >= 0:
+            self.inference_backend.setCurrentIndex(backend_index)
+        precision_index = self.inference_precision.findData(profile.inference_precision)
+        if precision_index >= 0:
+            self.inference_precision.setCurrentIndex(precision_index)
+        self.inference_batch_size.setValue(profile.inference_batch_size)
 
     def _update_elapsed(self) -> None:
         self._update_timing_labels()
@@ -1065,6 +1382,11 @@ def _make_arrow_icon(*, up: bool) -> QIcon:
 
 
 def _make_icon() -> QIcon:
+    icon_path = _app_icon_path()
+    if icon_path is not None:
+        icon = QIcon(str(icon_path))
+        if not icon.isNull():
+            return icon
     pixmap = QPixmap(64, 64)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
@@ -1080,6 +1402,42 @@ def _make_icon() -> QIcon:
     return QIcon(pixmap)
 
 
+def _app_icon_path() -> Path | None:
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    icon_names = (
+        ("app_icon.ico", "app_icon.png")
+        if os.name == "nt"
+        else ("app_icon.png", "app_icon.ico")
+    )
+    asset_roots = [
+        Path(bundle_root) / "assets" if bundle_root else None,
+        Path(__file__).resolve().parents[2] / "assets",
+    ]
+    candidates = [
+        root / icon_name
+        for root in asset_roots
+        if root is not None
+        for icon_name in icon_names
+    ]
+    return next(
+        (candidate for candidate in candidates if candidate and candidate.is_file()),
+        None,
+    )
+
+
+def _set_windows_app_user_model_id() -> None:
+    """让源码版和安装版在 Windows 任务栏中使用独立应用身份与图标。"""
+
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(  # type: ignore[attr-defined]
+            WINDOWS_APP_USER_MODEL_ID
+        )
+    except (AttributeError, OSError):
+        return
+
+
 def _apply_windows_dark_frame(window: QMainWindow) -> None:
     if os.name != "nt":
         return
@@ -1093,10 +1451,18 @@ def _apply_windows_dark_frame(window: QMainWindow) -> None:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "--cli":
+        from tennis_video_helper.cli import app as cli_app
+
+        sys.argv = [sys.argv[0], *sys.argv[2:]]
+        cli_app()
+        return
+    _set_windows_app_user_model_id()
     app = QApplication(sys.argv)
     app.setApplicationName("Tennis Video Helper")
     app.setOrganizationName("TennisVideoHelper")
     app.setStyle("Fusion")
+    app.setWindowIcon(_make_icon())
     window = MainWindow()
     window.show()
     raise SystemExit(app.exec())

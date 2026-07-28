@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import shutil
 import tempfile
+import time
 import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -38,7 +39,9 @@ class PipelineServices:
         list[VisualEvent],
     ]
     export_clip: Callable[[MediaInfo, RallySegment, Path, AnalysisConfig], None]
-    verify_clip: Callable[[Path, MediaInfo, RallySegment], tuple[bool, str | None]]
+    verify_clip: Callable[
+        [Path, MediaInfo, RallySegment, AnalysisConfig], tuple[bool, str | None]
+    ]
     write_reports: Callable[
         [
             Path,
@@ -280,10 +283,18 @@ def _process_video(
             replace(record, path=output_dir / "clips" / record.path.name)
             for record in records
         ]
-        if config.overwrite_existing_output and any(
-            not record.verified for record in published_records
-        ):
-            raise RuntimeError("新结果包含验证失败的片段，旧结果已保留")
+        failed_records = [record for record in published_records if not record.verified]
+        if config.overwrite_existing_output and failed_records:
+            error_details = list(
+                dict.fromkeys(record.error for record in failed_records if record.error)
+            )
+            detail = "；".join(error_details[:3])
+            if len(error_details) > 3:
+                detail += f"；另有 {len(error_details) - 3} 种错误"
+            summary = f"新结果有 {len(failed_records)} 个片段失败"
+            if detail:
+                summary += f"：{detail}"
+            raise RuntimeError(f"{summary}，旧结果已保留")
 
         progress_callback(0.98, "生成分析报告")
         services.write_reports(
@@ -336,7 +347,7 @@ def _export_and_verify_segment(
     target = clips_dir / _clip_filename(index, segment)
     try:
         services.export_clip(media, segment, target, config)
-        verified, error = services.verify_clip(target, media, segment)
+        verified, error = services.verify_clip(target, media, segment, config)
     except Exception as exc:  # noqa: BLE001 - 记录单片段错误并继续
         verified, error = False, str(exc)
     if not verified:
@@ -386,15 +397,37 @@ def _replace_output_dir(working_dir: Path, output_dir: Path) -> None:
         backup_dir = output_dir.with_name(
             f".{output_dir.name}.backup-{uuid.uuid4().hex}"
         )
-        output_dir.replace(backup_dir)
+        _replace_path_with_retry(output_dir, backup_dir)
     try:
-        working_dir.replace(output_dir)
+        _replace_path_with_retry(working_dir, output_dir)
     except Exception:
         if backup_dir is not None and backup_dir.exists() and not output_dir.exists():
-            backup_dir.replace(output_dir)
+            _replace_path_with_retry(backup_dir, output_dir)
         raise
     if backup_dir is not None:
         shutil.rmtree(backup_dir, ignore_errors=True)
+
+
+def _replace_path_with_retry(
+    source: Path,
+    target: Path,
+    *,
+    attempts: int = 12,
+    delay_seconds: float = 0.5,
+) -> None:
+    """容忍 Defender、缩略图和索引服务造成的短暂 Windows 目录锁。"""
+
+    last_error: PermissionError | None = None
+    for attempt in range(attempts):
+        try:
+            source.replace(target)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            if attempt + 1 < attempts:
+                time.sleep(delay_seconds)
+    assert last_error is not None
+    raise last_error
 
 
 def _clip_filename(index: int, segment: RallySegment) -> str:
@@ -496,10 +529,11 @@ def _verify_clip(
     path: Path,
     media: MediaInfo,
     segment: RallySegment,
+    config: AnalysisConfig,
 ) -> tuple[bool, str | None]:
     from tennis_video_helper.exporter import verify_clip
 
-    return verify_clip(path, media, segment)
+    return verify_clip(path, media, segment, config)
 
 
 def _write_reports(

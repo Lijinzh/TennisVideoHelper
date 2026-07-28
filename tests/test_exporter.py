@@ -10,6 +10,7 @@ from tennis_video_helper.exporter import (
     ExportError,
     build_ffmpeg_command,
     export_clip,
+    output_dimensions,
     verify_clip,
 )
 from tennis_video_helper.models import (
@@ -61,10 +62,72 @@ def test_build_ffmpeg_command_preserves_resolution_and_frame_rate(tmp_path: Path
     assert "-vf" not in command
     assert "-r" not in command
     assert command[command.index("-fps_mode:v:0") + 1] == "passthrough"
-    assert command[command.index("-enc_time_base:v:0") + 1] == "-1"
+    assert "-enc_time_base:v:0" not in command
     assert command[command.index("-ss") + 1] == "8.000"
     assert command[command.index("-t") + 1] == "17.000"
     assert command[-1] == str(target)
+
+
+def test_build_ffmpeg_command_uses_precise_encoder_time_base_for_vfr(
+    tmp_path: Path,
+) -> None:
+    media = replace(_media(tmp_path), is_variable_frame_rate=True)
+
+    command = build_ffmpeg_command(
+        media,
+        _segment(),
+        tmp_path / "vfr.mp4",
+        AnalysisConfig(),
+    )
+
+    assert command[command.index("-enc_time_base:v:0") + 1] == "1:90000"
+
+
+def test_build_ffmpeg_command_downscales_4k_on_cuda_by_default(
+    tmp_path: Path,
+) -> None:
+    media = replace(_media(tmp_path), width=3840, height=2160, video_codec="hevc")
+
+    command = build_ffmpeg_command(
+        media,
+        _segment(),
+        tmp_path / "1080p.mp4",
+        AnalysisConfig(gpu_available=True),
+    )
+
+    assert command[command.index("-hwaccel") + 1] == "cuda"
+    assert "hevc_cuvid" in command
+    assert command[command.index("-vf") + 1].startswith("scale_cuda=1920:1080")
+    assert "-pix_fmt" not in command
+    assert "hevc_nvenc" in command
+
+
+def test_build_ffmpeg_command_preserves_4k_only_when_requested(
+    tmp_path: Path,
+) -> None:
+    media = replace(_media(tmp_path), width=3840, height=2160)
+
+    command = build_ffmpeg_command(
+        media,
+        _segment(),
+        tmp_path / "original.mp4",
+        AnalysisConfig(export_original_quality=True),
+    )
+
+    assert output_dimensions(media, AnalysisConfig(export_original_quality=True)) == (
+        3840,
+        2160,
+    )
+    assert "-vf" not in command
+    assert "-hwaccel" not in command
+
+
+def test_output_dimensions_uses_portrait_1080p_without_upscaling(tmp_path: Path) -> None:
+    portrait_4k = replace(_media(tmp_path), width=2160, height=3840)
+    portrait_1080 = replace(_media(tmp_path), width=1080, height=1920)
+
+    assert output_dimensions(portrait_4k, AnalysisConfig()) == (1080, 1920)
+    assert output_dimensions(portrait_1080, AnalysisConfig()) == (1080, 1920)
 
 
 def test_build_ffmpeg_command_uses_main10_for_hdr10(tmp_path: Path) -> None:
@@ -147,6 +210,22 @@ def test_export_clip_removes_partial_staging_file_after_ffmpeg_failure(
 
     assert not target.exists()
     assert not list(tmp_path.glob(".*.staging.mp4"))
+
+
+def test_export_clip_includes_ffmpeg_error_detail(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "failed.mp4"
+
+    def fail_with_stderr(command, **_kwargs):
+        raise subprocess.CalledProcessError(
+            1,
+            command,
+            stderr="encoder initialization failed\nInvalid time base: -1\n",
+        )
+
+    monkeypatch.setattr("tennis_video_helper.exporter.subprocess.run", fail_with_stderr)
+
+    with pytest.raises(ExportError, match="Invalid time base: -1"):
+        export_clip(_media(tmp_path), _segment(), target, AnalysisConfig())
 
 
 def test_build_ffmpeg_command_rejects_dolby_vision(tmp_path: Path) -> None:
@@ -244,6 +323,24 @@ def test_verify_clip_accepts_segment_specific_average_fps_for_vfr_source(
     )
 
     verified, error = verify_clip(output, source, _segment())
+
+    assert verified is True
+    assert error is None
+
+
+def test_verify_clip_accepts_default_1080p_output(monkeypatch, tmp_path: Path) -> None:
+    source = replace(_media(tmp_path), width=3840, height=2160)
+    output = tmp_path / "clip.mp4"
+    output.write_bytes(b"encoded")
+    clip_media = replace(source, path=output, width=1920, height=1080, duration=17.0)
+
+    monkeypatch.setattr("tennis_video_helper.exporter.probe_media", lambda _path: clip_media)
+    monkeypatch.setattr(
+        "tennis_video_helper.exporter.subprocess.run",
+        lambda *args, **kwargs: type("Result", (), {"returncode": 0})(),
+    )
+
+    verified, error = verify_clip(output, source, _segment(), AnalysisConfig())
 
     assert verified is True
     assert error is None

@@ -5,7 +5,11 @@ import numpy as np
 
 from tennis_video_helper.config import AnalysisConfig
 from tennis_video_helper.models import AudioEvent, MediaInfo, VisualEvent
-from tennis_video_helper.pipeline import PipelineServices, process_batch
+from tennis_video_helper.pipeline import (
+    PipelineServices,
+    _replace_output_dir,
+    process_batch,
+)
 
 
 def _media(path: Path, *, audio: bool = True) -> MediaInfo:
@@ -25,6 +29,36 @@ def _media(path: Path, *, audio: bool = True) -> MediaInfo:
         is_hdr10=False,
         is_dolby_vision=False,
     )
+
+
+def test_replace_output_dir_retries_transient_permission_error(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "result"
+    working = tmp_path / ".result.staging"
+    output.mkdir()
+    working.mkdir()
+    (output / "old.txt").write_text("old", encoding="utf-8")
+    (working / "new.txt").write_text("new", encoding="utf-8")
+    original_replace = Path.replace
+    attempts = 0
+
+    def flaky_replace(path: Path, target: Path):
+        nonlocal attempts
+        if path == working and attempts < 2:
+            attempts += 1
+            raise PermissionError("temporary scanner lock")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+    monkeypatch.setattr("tennis_video_helper.pipeline.time.sleep", lambda _delay: None)
+
+    _replace_output_dir(working, output)
+
+    assert attempts == 2
+    assert (output / "new.txt").read_text(encoding="utf-8") == "new"
+    assert not (output / "old.txt").exists()
 
 
 def test_process_batch_continues_after_one_video_fails(tmp_path: Path) -> None:
@@ -53,7 +87,7 @@ def test_process_batch_continues_after_one_video_fails(tmp_path: Path) -> None:
             for timestamp in range(1, 14, 2)
         ],
         export_clip=lambda media, segment, target, config: exported_targets.append(target),
-        verify_clip=lambda path, media, duration: (True, None),
+        verify_clip=lambda path, media, duration, config: (True, None),
         write_reports=lambda directory, media, records, audio, visual, fused: reports.append(directory),
     )
 
@@ -143,7 +177,7 @@ def test_process_batch_removes_clip_that_fails_verification(tmp_path: Path) -> N
             for timestamp in range(1, 14, 2)
         ],
         export_clip=export_partial,
-        verify_clip=lambda _path, _media, _duration: (False, "验证失败"),
+        verify_clip=lambda _path, _media, _duration, _config: (False, "验证失败"),
         write_reports=lambda *_args: None,
     )
 
@@ -284,6 +318,7 @@ def test_overwrite_preserves_old_result_when_new_clip_fails_verification(
     )
 
     assert result.failure_count == 1
+    assert "新结果有 1 个片段失败：验证失败" in (result.results[0].error or "")
     assert "旧结果已保留" in (result.results[0].error or "")
     assert marker.read_text(encoding="utf-8") == "keep"
     assert not list(output.glob(".source.staging-*"))

@@ -34,19 +34,19 @@ def test_fuse_events_keeps_moderate_aligned_audio_and_pose_as_support() -> None:
     assert events[0].confidence >= AnalysisConfig().rally_support_threshold
 
 
-def test_fuse_events_keeps_plausibly_timed_remote_audio_hits() -> None:
+def test_fuse_events_keeps_remote_audio_below_rally_support_threshold() -> None:
     audio = [_audio(1.0), _audio(2.2), _audio(3.4)]
     visual = [_visual(1.0)]
 
     events = fuse_events(audio, visual, AnalysisConfig())
 
     assert events[0].confidence >= 0.9
-    assert events[1].confidence >= 0.6
-    assert events[2].confidence >= 0.6
-    assert events[1].reason == "时间间隔合理的远端击球候选"
+    assert events[1].confidence < AnalysisConfig().rally_support_threshold
+    assert events[2].confidence < AnalysisConfig().rally_support_threshold
+    assert events[1].reason == "声音候选（未通过骨架确认）"
 
 
-def test_fuse_events_keeps_first_remote_hit_with_next_hit_and_visual_context() -> None:
+def test_fuse_events_does_not_promote_audio_before_later_visual_context() -> None:
     events = fuse_events(
         [_audio(1.0), _audio(2.2)],
         [_visual(3.0)],
@@ -54,8 +54,8 @@ def test_fuse_events_keeps_first_remote_hit_with_next_hit_and_visual_context() -
     )
 
     first_audio_event = next(event for event in events if event.timestamp == 1.0)
-    assert first_audio_event.confidence >= AnalysisConfig().rally_support_threshold
-    assert first_audio_event.reason == "时间间隔合理的远端击球候选"
+    assert first_audio_event.confidence < AnalysisConfig().rally_support_threshold
+    assert first_audio_event.reason == "声音候选（未通过骨架确认）"
 
 
 def test_fuse_events_marks_isolated_background_audio_as_low_confidence() -> None:
@@ -96,21 +96,21 @@ def test_build_rally_segments_keeps_twelve_second_sequence_with_buffers() -> Non
 
 def test_build_rally_segments_uses_support_events_to_keep_confirmed_rally_connected() -> None:
     events = [
-        FusedEvent(15.42, 0.8, 0.2, 0.51, "支撑事件"),
-        FusedEvent(17.71, 0.5, 0.3, 0.42, "支撑事件"),
-        FusedEvent(18.57, 1.0, 0.9, 0.95, "强确认事件"),
-        FusedEvent(20.81, 0.9, 0.4, 0.68, "强确认事件"),
-        FusedEvent(22.94, 1.0, 0.0, 0.85, "强确认事件"),
-        FusedEvent(25.35, 0.6, 0.1, 0.40, "支撑事件"),
-        FusedEvent(27.29, 0.0, 1.0, 0.45, "支撑事件"),
+        FusedEvent(14.0, 0.8, 0.0, 0.28, "前置声音候选"),
+        FusedEvent(15.0, 0.8, 0.8, 0.90, "骨架强确认"),
+        FusedEvent(18.0, 0.9, 0.7, 0.88, "骨架强确认"),
+        FusedEvent(21.0, 0.8, 0.0, 0.28, "对手回球声"),
+        FusedEvent(23.5, 0.7, 0.0, 0.27, "对手回球声"),
+        FusedEvent(25.0, 0.8, 0.9, 0.94, "骨架强确认"),
+        FusedEvent(28.0, 0.9, 0.0, 0.28, "后置声音候选"),
     ]
 
     segments = build_rally_segments(events, media_duration=30.0, config=AnalysisConfig())
 
     assert len(segments) == 1
-    assert segments[0].active_start == 15.42
-    assert segments[0].active_end == 27.29
-    assert segments[0].event_count == 7
+    assert segments[0].active_start == 15.0
+    assert segments[0].active_end == 25.0
+    assert segments[0].event_count == 3
 
 
 def test_build_rally_segments_keeps_joint_evidence_across_slow_return_gaps() -> None:
@@ -139,13 +139,54 @@ def test_build_rally_segments_keeps_joint_evidence_across_slow_return_gaps() -> 
     segments = build_rally_segments(events, 300.0, AnalysisConfig())
 
     assert len(segments) == 1
-    assert segments[0].active_start == 206.3
+    assert segments[0].active_start == 207.8
     assert segments[0].active_end == 247.6
 
 
 def test_build_rally_segments_does_not_start_rally_from_support_events_only() -> None:
     events = [
         FusedEvent(float(timestamp), 0.0, 1.0, 0.45, "只有支撑事件")
+        for timestamp in range(1, 14, 2)
+    ]
+
+    assert build_rally_segments(events, 30.0, AnalysisConfig()) == []
+
+
+def test_build_rally_segments_requires_at_least_one_sound_aligned_swing() -> None:
+    events = [
+        FusedEvent(float(timestamp), 0.0, 0.9, 0.75, "只有骨架动作")
+        for timestamp in range(1, 14, 2)
+    ]
+
+    assert build_rally_segments(events, 30.0, AnalysisConfig()) == []
+
+
+def test_build_rally_segments_rejects_repeated_talking_gestures() -> None:
+    events = [
+        FusedEvent(
+            float(timestamp),
+            0.4 if timestamp == 7 else 0.0,
+            0.9,
+            0.9,
+            "站立讲话手势",
+            visual_arm_motion_score=0.80,
+        )
+        for timestamp in range(1, 14, 2)
+    ]
+
+    assert build_rally_segments(events, 30.0, AnalysisConfig()) == []
+
+
+def test_build_rally_segments_requires_nontrivial_audio_on_strong_swing() -> None:
+    events = [
+        FusedEvent(
+            float(timestamp),
+            0.05 if timestamp == 7 else 0.0,
+            0.9,
+            0.9,
+            "强动作但声音过弱",
+            visual_arm_motion_score=1.0,
+        )
         for timestamp in range(1, 14, 2)
     ]
 

@@ -5,13 +5,12 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import librosa
 import numpy as np
 import soundfile as sf
-from scipy.signal import find_peaks
 
 from tennis_video_helper.config import AnalysisConfig
 from tennis_video_helper.models import AudioEvent
+from tennis_video_helper.runtime_tools import media_executable
 
 
 class AudioAnalysisError(RuntimeError):
@@ -23,7 +22,7 @@ def extract_audio(source: Path, target: Path, *, sample_rate: int) -> None:
 
     target.parent.mkdir(parents=True, exist_ok=True)
     command = [
-        "ffmpeg",
+        media_executable("ffmpeg"),
         "-hide_banner",
         "-loglevel",
         "error",
@@ -58,13 +57,15 @@ def detect_audio_events(
 
     hop_length = 256
     n_fft = 1024
-    onset_envelope = librosa.onset.onset_strength(
-        y=mono,
-        sr=sample_rate,
-        hop_length=hop_length,
-        n_fft=n_fft,
-        aggregate=np.max,
-    )
+    if mono.size < n_fft:
+        mono = np.pad(mono, (0, n_fft - mono.size))
+    frame_count = 1 + (mono.size - n_fft) // hop_length
+    frames = np.lib.stride_tricks.sliding_window_view(mono, n_fft)[::hop_length]
+    frames = frames[:frame_count] * np.hanning(n_fft)
+    spectrum = np.abs(np.fft.rfft(frames, axis=1))
+    onset_envelope = np.zeros(len(spectrum), dtype=np.float64)
+    if len(spectrum) > 1:
+        onset_envelope[1:] = np.mean(np.maximum(np.diff(spectrum, axis=0), 0.0), axis=1)
     if onset_envelope.size == 0 or float(np.max(onset_envelope)) <= 0:
         return []
 
@@ -73,22 +74,13 @@ def detect_audio_events(
     robust_scale = max(mad * 1.4826, float(np.std(onset_envelope)) * 0.15, 1e-6)
     threshold = median + (4.0 / config.audio_sensitivity) * robust_scale
     minimum_distance = max(1, round(0.25 * sample_rate / hop_length))
-    peak_indices, properties = find_peaks(
-        onset_envelope,
-        height=threshold,
-        distance=minimum_distance,
-        prominence=robust_scale,
-    )
+    peak_indices = _find_separated_peaks(onset_envelope, threshold, minimum_distance)
     if peak_indices.size == 0:
         return []
 
-    peak_heights = np.asarray(properties["peak_heights"], dtype=np.float64)
+    peak_heights = onset_envelope[peak_indices]
     upper = max(float(np.percentile(peak_heights, 95)), threshold + 1e-6)
-    timestamps = librosa.frames_to_time(
-        peak_indices,
-        sr=sample_rate,
-        hop_length=hop_length,
-    )
+    timestamps = peak_indices * hop_length / sample_rate
     center_offset = n_fft / (2 * sample_rate)
 
     events: list[AudioEvent] = []
@@ -102,6 +94,27 @@ def detect_audio_events(
             )
         )
     return events
+
+
+def _find_separated_peaks(
+    values: np.ndarray,
+    threshold: float,
+    minimum_distance: int,
+) -> np.ndarray:
+    """Select local maxima above threshold without depending on SciPy."""
+
+    if values.size < 3:
+        return np.empty(0, dtype=int)
+    candidates = np.flatnonzero(
+        (values[1:-1] >= values[:-2])
+        & (values[1:-1] > values[2:])
+        & (values[1:-1] >= threshold)
+    ) + 1
+    selected: list[int] = []
+    for index in candidates[np.argsort(values[candidates])[::-1]]:
+        if all(abs(int(index) - previous) >= minimum_distance for previous in selected):
+            selected.append(int(index))
+    return np.asarray(sorted(selected), dtype=int)
 
 
 def load_audio(path: Path) -> tuple[np.ndarray, int]:

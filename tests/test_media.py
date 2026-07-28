@@ -1,8 +1,12 @@
 import json
 from pathlib import Path
+import subprocess
 from subprocess import CompletedProcess
 
+import pytest
+
 from tennis_video_helper.media import parse_probe_payload, probe_media, scan_videos
+from tennis_video_helper.models import MediaProbeError
 
 
 def test_parse_probe_payload_reads_video_audio_and_rotation(tmp_path: Path) -> None:
@@ -156,6 +160,23 @@ def test_probe_media_calls_ffprobe_with_argument_list(monkeypatch, tmp_path: Pat
 
     media = probe_media(video)
 
-    assert captured[0] == "ffprobe"
+    assert Path(captured[0]).name == "ffprobe.exe"
     assert captured[-1] == str(video)
     assert media.duration == 3.0
+
+
+def test_probe_media_explains_missing_moov_atom(monkeypatch, tmp_path: Path) -> None:
+    video = tmp_path / "incomplete.mov"
+    video.touch()
+
+    def fail_probe(command, **kwargs):
+        raise subprocess.CalledProcessError(
+            1,
+            command,
+            stderr="moov atom not found\nInvalid data found when processing input",
+        )
+
+    monkeypatch.setattr("tennis_video_helper.media.subprocess.run", fail_probe)
+
+    with pytest.raises(MediaProbeError, match="缺少 moov 索引.*复制不完整"):
+        probe_media(video)

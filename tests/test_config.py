@@ -21,6 +21,8 @@ def test_default_config_matches_approved_design() -> None:
     assert config.inference_precision == "fp16"
     assert config.inference_batch_size == 16
     assert config.require_gpu is False
+    assert config.require_racket_confirmation is True
+    assert config.export_original_quality is False
 
 
 @pytest.mark.parametrize(
@@ -49,7 +51,7 @@ def test_config_rejects_support_threshold_above_confirmation_threshold() -> None
         AnalysisConfig(rally_support_threshold=0.7, fusion_threshold=0.6)
 
 
-@pytest.mark.parametrize("value", ["invalid", "onnx"])
+@pytest.mark.parametrize("value", ["invalid", "directml"])
 def test_config_rejects_unknown_inference_backend(value: str) -> None:
     with pytest.raises(ValueError, match="inference_backend"):
         AnalysisConfig(inference_backend=value)

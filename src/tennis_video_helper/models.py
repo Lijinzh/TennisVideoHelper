@@ -64,12 +64,17 @@ class AudioEvent:
 
 @dataclass(frozen=True, slots=True)
 class VisualEvent:
-    """近端球员动作候选事件。"""
+    """通过姿态、时序轨迹和站立状态确认的近端挥拍事件。"""
 
     timestamp: float
     confidence: float
     motion_score: float
     global_motion: float
+    posture_score: float = 1.0
+    arm_motion_score: float = 1.0
+    leg_motion_score: float = 0.0
+    stroke_type: str = "挥拍"
+    racket_confidence: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +86,7 @@ class FusedEvent:
     visual_confidence: float
     confidence: float
     reason: str
+    visual_arm_motion_score: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)

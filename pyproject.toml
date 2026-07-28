@@ -5,11 +5,9 @@ description = "使用音画融合自动筛选网球长回合并切分视频。"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "librosa>=0.11",
     "numpy>=2.0",
     "opencv-python>=4.11",
     "pyside6>=6.11.1",
-    "scipy>=1.15",
     "soundfile>=0.13",
     "torch>=2.7",
     "torchvision>=0.22",
@@ -33,6 +31,9 @@ gpu-max = [
     "pynvvideocodec>=2.1",
     "tensorrt-cu12!=10.2.0,>=10.13",
     "tensorrt-cu12-libs==11.1.0.106",
+]
+package = [
+    "pyinstaller>=6.21",
 ]
 
 [build-system]

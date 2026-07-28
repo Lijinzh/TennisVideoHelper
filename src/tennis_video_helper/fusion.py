@@ -12,8 +12,11 @@ from tennis_video_helper.models import (
     VisualEvent,
 )
 
-VISUAL_MATCH_WINDOW = 0.3
-PLAUSIBLE_HIT_INTERVAL = (0.35, 2.8)
+VISUAL_MATCH_WINDOW = 0.45
+VISUAL_CONFIRMATION_THRESHOLD = 0.30
+MAX_VISUAL_ANCHOR_GAP_FACTOR = 2.0
+STRONG_SWING_ARM_MOTION = 0.85
+MIN_STRONG_SWING_AUDIO_CONFIDENCE = 0.10
 
 
 def fuse_events(
@@ -25,17 +28,16 @@ def fuse_events(
 
     fused: list[FusedEvent] = []
     matched_visual_indices: set[int] = set()
-    previous_audio_time: float | None = None
-
+    ordered_visual_events = sorted(visual_events, key=lambda item: item.timestamp)
     ordered_audio_events = sorted(audio_events, key=lambda item: item.timestamp)
-    for audio_index, audio_event in enumerate(ordered_audio_events):
+    for audio_event in ordered_audio_events:
         match_index = _nearest_visual_index(
             audio_event.timestamp,
-            visual_events,
+            ordered_visual_events,
             matched_visual_indices,
         )
         if match_index is not None:
-            visual_event = visual_events[match_index]
+            visual_event = ordered_visual_events[match_index]
             matched_visual_indices.add(match_index)
             audio_evidence = (
                 config.aligned_audio_reliability * audio_event.confidence
@@ -49,39 +51,17 @@ def fuse_events(
             )
             reason = "音画共同确认近端击球"
             visual_confidence = visual_event.confidence
+            visual_arm_motion_score = visual_event.arm_motion_score
             timestamp = (audio_event.timestamp + visual_event.timestamp) / 2
         else:
-            interval = (
-                audio_event.timestamp - previous_audio_time
-                if previous_audio_time is not None
-                else None
+            # 未经骨架确认的声音只能作为候选，不能独立启动或延长回合。
+            confidence = min(
+                config.rally_support_threshold * 0.75,
+                0.18 + 0.12 * audio_event.confidence,
             )
-            next_interval = (
-                ordered_audio_events[audio_index + 1].timestamp - audio_event.timestamp
-                if audio_index + 1 < len(ordered_audio_events)
-                else None
-            )
-            has_plausible_neighbor = any(
-                candidate is not None
-                and PLAUSIBLE_HIT_INTERVAL[0]
-                <= candidate
-                <= PLAUSIBLE_HIT_INTERVAL[1]
-                for candidate in (interval, next_interval)
-            )
-            has_visual_context = any(
-                abs(visual.timestamp - audio_event.timestamp) <= config.end_silence
-                for visual in visual_events
-            )
-            if (
-                has_plausible_neighbor
-                and has_visual_context
-            ):
-                confidence = min(0.85, 0.65 * audio_event.confidence + 0.2)
-                reason = "时间间隔合理的远端击球候选"
-            else:
-                confidence = 0.45 * audio_event.confidence
-                reason = "缺少动作支持的孤立声音"
+            reason = "声音候选（未通过骨架确认）"
             visual_confidence = 0.0
+            visual_arm_motion_score = 0.0
             timestamp = audio_event.timestamp
 
         fused.append(
@@ -91,11 +71,10 @@ def fuse_events(
                 visual_confidence=visual_confidence,
                 confidence=confidence,
                 reason=reason,
+                visual_arm_motion_score=visual_arm_motion_score,
             )
         )
-        previous_audio_time = audio_event.timestamp
-
-    for index, visual_event in enumerate(visual_events):
+    for index, visual_event in enumerate(ordered_visual_events):
         if index in matched_visual_indices:
             continue
         fused.append(
@@ -103,8 +82,9 @@ def fuse_events(
                 timestamp=visual_event.timestamp,
                 audio_confidence=0.0,
                 visual_confidence=visual_event.confidence,
-                confidence=0.45 * visual_event.confidence,
-                reason="缺少声音支持的挥拍动作",
+                confidence=min(0.8, 0.35 + 0.45 * visual_event.confidence),
+                reason="骨架时序确认挥拍（缺少击球声支持）",
+                visual_arm_motion_score=visual_event.arm_motion_score,
             )
         )
 
@@ -116,33 +96,52 @@ def build_rally_segments(
     media_duration: float,
     config: AnalysisConfig,
 ) -> list[RallySegment]:
-    """用强事件确认回合，并用支撑事件维持满足时长阈值的连续区间。"""
+    """仅用骨架确认挥拍确定边界，声音只桥接两个视觉锚点。"""
 
-    supported = sorted(
-        (
-            event
-            for event in events
-            if event.confidence >= config.rally_support_threshold
-        ),
-        key=lambda item: item.timestamp,
-    )
-    if not supported:
+    ordered_events = sorted(events, key=lambda item: item.timestamp)
+    visual_anchors = [
+        event
+        for event in ordered_events
+        if event.visual_confidence >= VISUAL_CONFIRMATION_THRESHOLD
+        and event.confidence >= config.rally_support_threshold
+    ]
+    if not visual_anchors:
         return []
 
-    groups: list[list[FusedEvent]] = [[supported[0]]]
-    for event in supported[1:]:
-        if event.timestamp - groups[-1][-1].timestamp <= config.end_silence:
-            groups[-1].append(event)
+    groups: list[list[FusedEvent]] = [[visual_anchors[0]]]
+    for anchor in visual_anchors[1:]:
+        if _visual_anchors_connected(
+            groups[-1][-1],
+            anchor,
+            ordered_events,
+            config,
+        ):
+            groups[-1].append(anchor)
         else:
-            groups.append([event])
+            groups.append([anchor])
 
-    groups = _merge_event_groups(groups, config.merge_gap)
     segments: list[RallySegment] = []
     for group in groups:
+        if len(group) < 2:
+            continue
         confirmation_count = sum(
             event.confidence >= config.fusion_threshold for event in group
         )
         if confirmation_count < 2:
+            continue
+        strong_swings = [
+            event
+            for event in group
+            if event.visual_confidence >= VISUAL_CONFIRMATION_THRESHOLD
+            and event.visual_arm_motion_score >= STRONG_SWING_ARM_MOTION
+        ]
+        if len(strong_swings) < 2:
+            continue
+        if not any(
+            event.audio_confidence >= MIN_STRONG_SWING_AUDIO_CONFIDENCE
+            and event.visual_confidence >= VISUAL_CONFIRMATION_THRESHOLD
+            for event in group
+        ):
             continue
         active_start = group[0].timestamp
         active_end = group[-1].timestamp
@@ -177,16 +176,28 @@ def _nearest_visual_index(
     return min(candidates)[1] if candidates else None
 
 
-def _merge_event_groups(
-    groups: list[list[FusedEvent]],
-    merge_gap: float,
-) -> list[list[FusedEvent]]:
-    if not groups:
-        return []
-    merged = [groups[0][:]]
-    for group in groups[1:]:
-        if group[0].timestamp - merged[-1][-1].timestamp <= merge_gap:
-            merged[-1].extend(group)
-        else:
-            merged.append(group[:])
-    return merged
+def _visual_anchors_connected(
+    previous: FusedEvent,
+    current: FusedEvent,
+    events: list[FusedEvent],
+    config: AnalysisConfig,
+) -> bool:
+    gap = current.timestamp - previous.timestamp
+    if gap <= config.end_silence:
+        return True
+    if gap > config.end_silence * MAX_VISUAL_ANCHOR_GAP_FACTOR:
+        return False
+
+    # 允许画面中的本方球员两次挥拍之间存在对手回球声，但两端必须都有骨架动作。
+    bridge_times = [previous.timestamp]
+    bridge_times.extend(
+        event.timestamp
+        for event in events
+        if previous.timestamp < event.timestamp < current.timestamp
+        and event.audio_confidence >= 0.25
+    )
+    bridge_times.append(current.timestamp)
+    return len(bridge_times) > 2 and all(
+        right - left <= config.end_silence
+        for left, right in zip(bridge_times, bridge_times[1:])
+    )

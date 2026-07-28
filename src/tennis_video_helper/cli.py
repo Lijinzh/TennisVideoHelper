@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,7 +12,9 @@ from pathlib import Path
 import typer
 
 from tennis_video_helper.config import AnalysisConfig
+from tennis_video_helper.optimizer import OPTIMIZATION_PREFIX
 from tennis_video_helper.pipeline import ProgressUpdate, process_batch
+from tennis_video_helper.runtime_tools import media_executable, media_tool_available
 
 PROGRESS_PREFIX = "TVH_PROGRESS "
 ACCELERATION_PREFIX = "TVH_ACCELERATION "
@@ -31,6 +33,18 @@ app = typer.Typer(
     help="使用音画融合筛选并切分网球长回合。",
     no_args_is_help=True,
 )
+
+
+def _configure_utf8_stdio() -> None:
+    """Keep worker output UTF-8 regardless of the Windows console code page."""
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+
+
+_configure_utf8_stdio()
 
 
 @app.callback()
@@ -104,7 +118,7 @@ def analyze(
     inference_backend: str = typer.Option(
         "auto",
         "--backend",
-        help="推理后端：auto、torch 或 tensorrt。",
+        help="推理后端：auto、onnx、torch 或 tensorrt。",
     ),
     inference_precision: str = typer.Option(
         "fp16",
@@ -127,6 +141,11 @@ def analyze(
         False,
         "--overwrite-existing/--keep-existing",
         help="新结果成功后替换同名旧结果，或保留并创建带编号的新目录。",
+    ),
+    original_quality: bool = typer.Option(
+        False,
+        "--original-quality/--1080p-output",
+        help="保留源分辨率，或默认将超过 1080p 的视频缩小到 1080p 并保持原始帧率。",
     ),
     progress_json: bool = typer.Option(
         False,
@@ -163,8 +182,14 @@ def analyze(
         inference_batch_size=inference_batch_size,
         require_gpu=require_gpu,
         gpu_available=runtime.nvenc_available,
+        export_original_quality=original_quality,
         overwrite_existing_output=overwrite_existing,
         acceleration_callback=emit_acceleration,
+    )
+    typer.echo(
+        "导出画质：保持源视频分辨率和原始帧率。"
+        if original_quality
+        else "导出画质：默认最高 1080p，保持原始帧率；1080p 或更低的视频不会放大。"
     )
     emit_acceleration(
         {
@@ -217,13 +242,75 @@ def analyze(
         raise typer.Exit(code=1)
 
 
+@app.command()
+def optimize(
+    input_path: Path = typer.Argument(
+        ...,
+        exists=True,
+        readable=True,
+        help="用于本机基准测试的单个视频或视频文件夹。",
+    ),
+    benchmark_seconds: float = typer.Option(
+        60.0,
+        "--benchmark-seconds",
+        min=10.0,
+        max=300.0,
+        help="每个候选配置分析的视频时长。",
+    ),
+    progress_json: bool = typer.Option(False, "--progress-json", hidden=True),
+) -> None:
+    """检测本机硬件，并用真实视频选择最快的可靠配置。"""
+
+    from tennis_video_helper.optimizer import optimize_hardware
+
+    def emit_progress(percent: float, phase: str) -> None:
+        if not progress_json:
+            typer.echo(f"[{percent:5.1f}%] {phase}")
+            return
+        update = ProgressUpdate(
+            percent=percent,
+            phase=phase,
+            current_video=Path(input_path),
+            video_index=1,
+            video_total=1,
+        )
+        typer.echo(_format_progress_line(update))
+
+    try:
+        profile = optimize_hardware(
+            input_path,
+            benchmark_seconds=benchmark_seconds,
+            progress=emit_progress,
+        )
+    except RuntimeError as exc:
+        typer.echo(f"自动优化失败：{exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    typer.echo(
+        OPTIMIZATION_PREFIX
+        + json.dumps(
+            profile.to_dict(),
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+    )
+    typer.echo(
+        "自动优化完成："
+        f"{profile.inference_backend} {profile.inference_precision.upper()}，"
+        f"批量 {profile.inference_batch_size}，"
+        f"解码器 {profile.decoder}。"
+    )
+
+
 def _check_runtime(*, require_gpu: bool = False) -> RuntimeCapabilities:
     for executable in ("ffmpeg", "ffprobe"):
-        if shutil.which(executable) is None:
-            raise RuntimeError(f"找不到 {executable}，请先安装并加入 PATH")
+        if not media_tool_available(executable):
+            raise RuntimeError(
+                f"找不到 {executable}。请安装到 PATH，或随程序放入 runtime 目录"
+            )
 
     encoder_check = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-encoders"],
+        [media_executable("ffmpeg"), "-hide_banner", "-encoders"],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -232,13 +319,31 @@ def _check_runtime(*, require_gpu: bool = False) -> RuntimeCapabilities:
     if encoder_check.returncode != 0:
         raise RuntimeError("无法读取 FFmpeg 编码器列表")
 
+    cuda_available = False
+    device_name = None
     try:
         import torch
-    except ImportError as exc:
-        raise RuntimeError("PyTorch CUDA 依赖尚未安装") from exc
-    cuda_available = bool(torch.cuda.is_available())
+
+        cuda_available = bool(torch.cuda.is_available())
+        device_name = torch.cuda.get_device_name(0) if cuda_available else None
+    except ImportError:
+        try:
+            import onnxruntime as ort
+
+            providers = set(ort.get_available_providers())
+            cuda_available = bool(
+                providers
+                & {
+                    "TensorrtExecutionProvider",
+                    "CUDAExecutionProvider",
+                    "DmlExecutionProvider",
+                }
+            )
+            if cuda_available:
+                device_name = "ONNX GPU"
+        except (ImportError, OSError):
+            pass
     nvenc_available = "hevc_nvenc" in encoder_check.stdout
-    device_name = torch.cuda.get_device_name(0) if cuda_available else None
     if require_gpu and not (cuda_available and nvenc_available):
         raise RuntimeError("当前没有显卡驱动或可用 CUDA/NVENC，且已指定 --require-gpu")
     if not nvenc_available and "libx265" not in encoder_check.stdout:
@@ -263,13 +368,13 @@ def _format_progress_line(update: ProgressUpdate) -> str:
         "video_index": update.video_index,
         "video_total": update.video_total,
     }
-    return PROGRESS_PREFIX + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return PROGRESS_PREFIX + json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
 
 
 def _format_acceleration_line(payload: dict[str, object]) -> str:
     return ACCELERATION_PREFIX + json.dumps(
         payload,
-        ensure_ascii=False,
+        ensure_ascii=True,
         separators=(",", ":"),
     )
 

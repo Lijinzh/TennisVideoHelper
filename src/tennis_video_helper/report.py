@@ -42,7 +42,7 @@ def write_reports(
             for event in audio_events
         ],
         "visual_events": [
-            _event_payload(event, source="visual", reason="近端动作候选")
+            _event_payload(event, source="visual", reason="骨架时序确认挥拍")
             for event in visual_events
         ],
         "fused_events": [

@@ -13,16 +13,22 @@ from tennis_video_helper.gui import (
     AnalysisFormValues,
     ParameterTile,
     MainWindow,
+    MixedProcessOutputDecoder,
     VIDEO_FILE_FILTER,
     build_analyze_arguments,
+    build_optimize_arguments,
     build_stop_command,
+    decode_utf8_chunks,
     format_clock,
     parse_output_path,
     parse_paths,
     parse_acceleration_line,
+    parse_optimization_line,
     parse_progress_line,
+    process_invocation,
     process_ids_match,
 )
+import tennis_video_helper.gui as gui_module
 
 
 def test_build_analyze_arguments_includes_paths_and_parameters() -> None:
@@ -51,8 +57,34 @@ def test_build_analyze_arguments_includes_paths_and_parameters() -> None:
     assert arguments[arguments.index("--batch-size") + 1] == "16"
     assert "--progress-json" in arguments
     assert "--allow-cpu" in arguments
+    assert "--1080p-output" in arguments
     assert "--overwrite-existing" in arguments
     assert arguments[arguments.index("--limit-duration") + 1] == "300"
+
+
+def test_windows_app_user_model_id_is_registered(monkeypatch) -> None:
+    registered: list[str] = []
+
+    class FakeShell32:
+        def SetCurrentProcessExplicitAppUserModelID(self, value: str) -> None:
+            registered.append(value)
+
+    class FakeWindll:
+        shell32 = FakeShell32()
+
+    monkeypatch.setattr(gui_module.os, "name", "nt")
+    monkeypatch.setattr(gui_module.ctypes, "windll", FakeWindll())
+
+    gui_module._set_windows_app_user_model_id()
+
+    assert registered == [gui_module.WINDOWS_APP_USER_MODEL_ID]
+
+
+def test_source_run_prefers_windows_ico(monkeypatch) -> None:
+    monkeypatch.setattr(gui_module.os, "name", "nt")
+
+    assert gui_module._app_icon_path() is not None
+    assert gui_module._app_icon_path().suffix == ".ico"
 
 
 def test_build_analyze_arguments_omits_unlimited_duration() -> None:
@@ -70,6 +102,48 @@ def test_build_analyze_arguments_omits_unlimited_duration() -> None:
     )
 
     assert "--limit-duration" not in build_analyze_arguments(values)
+
+
+def test_build_analyze_arguments_can_request_original_quality() -> None:
+    values = AnalysisFormValues(
+        input_path=Path("D:/videos"),
+        output_path=Path("D:/selected"),
+        min_rally_duration=10.0,
+        pre_roll=2.0,
+        post_roll=3.0,
+        end_silence=3.5,
+        analysis_fps=12,
+        audio_sensitivity=1.0,
+        visual_sensitivity=1.0,
+        limit_duration=None,
+        export_original_quality=True,
+    )
+
+    arguments = build_analyze_arguments(values)
+
+    assert "--original-quality" in arguments
+    assert "--1080p-output" not in arguments
+
+
+def test_build_optimize_arguments_uses_real_video_and_progress_protocol() -> None:
+    arguments = build_optimize_arguments(Path("D:/videos/match.mov"), 45)
+
+    assert arguments[:3] == ["-m", "tennis_video_helper.cli", "optimize"]
+    assert arguments[3] == "D:\\videos\\match.mov" or arguments[3] == "D:/videos/match.mov"
+    assert arguments[arguments.index("--benchmark-seconds") + 1] == "45"
+    assert "--progress-json" in arguments
+
+
+def test_frozen_process_invocation_reuses_packaged_executable(monkeypatch) -> None:
+    monkeypatch.setattr("tennis_video_helper.gui.sys.frozen", True, raising=False)
+    monkeypatch.setattr("tennis_video_helper.gui.sys.executable", "TennisVideoHelper.exe")
+
+    program, arguments = process_invocation(
+        ["-m", "tennis_video_helper.cli", "optimize", "sample.mov"]
+    )
+
+    assert program == "TennisVideoHelperWorker.exe"
+    assert arguments == ["optimize", "sample.mov"]
 
 
 def test_parse_paths_rejects_empty_output() -> None:
@@ -226,6 +300,11 @@ def test_reference_layout_balances_status_and_fills_log_card() -> None:
 
     assert window.workbench_card.height() > compact_workbench_height
     assert window.log.height() > compact_log_height
+    parameter_bottom = window.parameter_card.mapTo(
+        window.page_scroll.viewport(),
+        window.parameter_card.rect().bottomLeft(),
+    ).y()
+    assert window.page_scroll.viewport().height() - parameter_bottom <= 12
     assert window.page_scroll.verticalScrollBar().maximum() == 0
 
     window.close()
@@ -326,3 +405,39 @@ def test_progress_line_and_clock_formatting() -> None:
     assert parse_progress_line("普通日志") is None
     assert parse_progress_line("TVH_PROGRESS invalid") is None
     assert format_clock(3661) == "01:01:01"
+
+
+def test_utf8_decoder_preserves_chinese_split_between_process_chunks() -> None:
+    payload = "GPU 分析画面 · Threaded NVDEC · 中文日志".encode("utf-8")
+    chunks = [payload[:5], payload[5:8], payload[8:17], payload[17:]]
+
+    decoded = decode_utf8_chunks(chunks)
+
+    assert decoded == "GPU 分析画面 · Threaded NVDEC · 中文日志"
+    assert "�" not in decoded
+
+
+def test_process_decoder_handles_mixed_utf8_and_windows_utf16_logs() -> None:
+    decoder = MixedProcessOutputDecoder()
+    utf8_line = "GPU 分析画面\n".encode("utf-8")
+    utf16_line = "CUDA 运行库缺失\n".encode("utf-16-le")
+    payload = utf8_line + utf16_line
+
+    decoded = "".join(
+        decoder.decode(chunk)
+        for chunk in (payload[:7], payload[7:19], payload[19:31], payload[31:])
+    )
+    decoded += decoder.decode(b"", final=True)
+
+    assert decoded == "GPU 分析画面\nCUDA 运行库缺失\n"
+    assert "\x00" not in decoded
+    assert "�" not in decoded
+
+
+def test_optimization_result_line_is_parsed() -> None:
+    payload = parse_optimization_line(
+        'TVH_OPTIMIZATION {"inference_backend":"tensorrt","inference_batch_size":32}'
+    )
+
+    assert payload == {"inference_backend": "tensorrt", "inference_batch_size": 32}
+    assert parse_optimization_line("普通日志") is None

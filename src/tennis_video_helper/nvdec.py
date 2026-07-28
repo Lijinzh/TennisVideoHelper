@@ -12,6 +12,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from tennis_video_helper.media import probe_media
+
 
 class NvdecUnavailable(RuntimeError):
     """当前环境无法使用 PyNvVideoCodec/NVDEC。"""
@@ -26,6 +28,23 @@ class NvdecBatch:
 
 
 _DLL_DIRECTORIES: list[object] = []
+_NVDEC_UNSUPPORTED_CODECS = {
+    "prores": "Apple ProRes",
+    "dnxhd": "Avid DNxHD/DNxHR",
+    "cfhd": "GoPro CineForm",
+}
+
+
+def nvdec_unsupported_reason(codec: str) -> str | None:
+    """返回已知不能由 NVIDIA NVDEC 解码的中间编码格式说明。"""
+
+    label = _NVDEC_UNSUPPORTED_CODECS.get(codec.casefold())
+    if label is None:
+        return None
+    return (
+        f"源视频编码为 {label}，NVIDIA NVDEC 不支持该格式；"
+        "将使用 CPU/OpenCV 解码，CUDA 姿态推理和 NVENC 导出仍可继续使用"
+    )
 
 
 def iter_nvdec_batches(
@@ -40,14 +59,18 @@ def iter_nvdec_batches(
 ):
     """按分析帧率直接在 GPU 上解码、旋转、缩放并生成固定尺寸批次。"""
 
+    try:
+        media = probe_media(path)
+    except Exception:  # noqa: BLE001 - 预检查失败时仍交给实际解码器判断
+        pass
+    else:
+        unsupported_reason = nvdec_unsupported_reason(media.video_codec)
+        if unsupported_reason:
+            raise NvdecUnavailable(unsupported_reason)
+
     nvc = _import_pynvvideocodec(torch_module)
     try:
-        decoder = nvc.SimpleDecoder(
-            str(path),
-            gpu_id=0,
-            use_device_memory=True,
-            output_color_type=nvc.OutputColorType.RGBP,
-        )
+        decoder = _create_decoder(nvc, path, batch_size=batch_size)
         metadata = decoder.get_stream_metadata()
     except Exception as exc:  # noqa: BLE001 - 可选后端失败时由调用方回退
         raise NvdecUnavailable(f"NVDEC 无法打开视频：{exc}") from exc
@@ -152,6 +175,29 @@ def iter_nvdec_batches(
             )
     except Exception as exc:  # noqa: BLE001 - 解码期异常统一转换为可回退错误
         raise NvdecUnavailable(f"NVDEC 解码失败：{exc}") from exc
+    finally:
+        end = getattr(decoder, "end", None)
+        if callable(end):
+            end()
+
+
+def _create_decoder(nvc, path: Path, *, batch_size: int):
+    """优先使用后台线程解码，并为推理保留数个预取批次。"""
+
+    common = {
+        "gpu_id": 0,
+        "use_device_memory": True,
+        "output_color_type": nvc.OutputColorType.RGBP,
+    }
+    threaded = getattr(nvc, "ThreadedDecoder", None)
+    if threaded is not None:
+        return threaded(
+            str(path),
+            buffer_size=max(64, batch_size * 4),
+            decoder_cache_size=2,
+            **common,
+        )
+    return nvc.SimpleDecoder(str(path), **common)
 
 
 def _decode_request_size(
@@ -270,6 +316,7 @@ def _build_batch(
     tensor = tensor.to(
         dtype=torch_module.float16 if use_fp16 else torch_module.float32
     ).div_(255)
+    tensor = _resize_for_analysis_tensor(tensor, torch_module)
     tensor = _letterbox_tensor(tensor, torch_module, square_input=square_input)
     return NvdecBatch(
         tensor=tensor,
@@ -314,4 +361,18 @@ def _letterbox_tensor(tensor, torch_module, *, square_input: bool = False):
         tensor,
         (left, right, top, bottom),
         value=114 / 255,
+    )
+
+
+def _resize_for_analysis_tensor(tensor, torch_module):
+    """在 GPU 上复刻 OpenCV 路径的 720p INTER_AREA 分析缩放。"""
+
+    height, width = tensor.shape[2:]
+    if height <= 720:
+        return tensor
+    resized_width = max(2, round(width * 720 / height))
+    return torch_module.nn.functional.interpolate(
+        tensor,
+        size=(720, resized_width),
+        mode="area",
     )

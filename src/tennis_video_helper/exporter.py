@@ -10,10 +10,34 @@ from pathlib import Path
 from tennis_video_helper.config import AnalysisConfig
 from tennis_video_helper.media import probe_media
 from tennis_video_helper.models import MediaInfo, RallySegment
+from tennis_video_helper.runtime_tools import media_executable
 
 
 class ExportError(RuntimeError):
     """片段编码或验证失败。"""
+
+
+def output_dimensions(media: MediaInfo, config: AnalysisConfig) -> tuple[int, int]:
+    """返回导出编码尺寸；默认限制为横屏 1920x1080 或竖屏 1080x1920。"""
+
+    if config.export_original_quality:
+        return media.width, media.height
+    max_width, max_height = (
+        (1920, 1080) if media.width >= media.height else (1080, 1920)
+    )
+    scale = min(1.0, max_width / media.width, max_height / media.height)
+    width = max(2, int(media.width * scale) // 2 * 2)
+    height = max(2, int(media.height * scale) // 2 * 2)
+    return width, height
+
+
+def _cuda_decoder(media: MediaInfo, config: AnalysisConfig) -> str | None:
+    if config.gpu_available is False:
+        return None
+    return {
+        "h264": "h264_cuvid",
+        "hevc": "hevc_cuvid",
+    }.get(media.video_codec.casefold())
 
 
 def build_ffmpeg_command(
@@ -28,15 +52,28 @@ def build_ffmpeg_command(
         raise ExportError("仅支持带 HLG 兼容基础层的 Dolby Vision Profile 8.4")
 
     duration = segment.output_end - segment.output_start
+    target_width, target_height = output_dimensions(media, config)
+    downscaling = (target_width, target_height) != (media.width, media.height)
+    cuda_decoder = _cuda_decoder(media, config) if downscaling else None
     command = [
-        "ffmpeg",
+        media_executable("ffmpeg"),
         "-hide_banner",
         "-loglevel",
         "error",
         "-y",
-        "-ss",
-        f"{segment.output_start:.3f}",
     ]
+    if cuda_decoder:
+        command.extend(
+            [
+                "-hwaccel",
+                "cuda",
+                "-hwaccel_output_format",
+                "cuda",
+                "-c:v",
+                cuda_decoder,
+            ]
+        )
+    command.extend(["-ss", f"{segment.output_start:.3f}"])
     if media.rotation:
         command.append("-noautorotate")
     command.extend(
@@ -81,25 +118,41 @@ def build_ffmpeg_command(
                 "0",
             ]
         )
+    if downscaling:
+        scale_filter = (
+            f"scale_cuda={target_width}:{target_height}:"
+            "interp_algo=bilinear:passthrough=0"
+            if cuda_decoder
+            else f"scale={target_width}:{target_height}:flags=lanczos"
+        )
+        command.extend(["-vf", scale_filter])
     command.extend(
         [
             "-fps_mode:v:0",
             "passthrough",
-            "-enc_time_base:v:0",
-            "-1",
         ]
     )
+    if media.is_variable_frame_rate:
+        # NVENC otherwise derives its encoder time base from r_frame_rate.  A
+        # mixed 30/60 fps iPhone recording can therefore be quantized to 1/30,
+        # giving adjacent 60 fps frames identical PTS values.  Use the common
+        # MP4 90 kHz clock so passthrough mode can retain every source frame's
+        # presentation time without relying on NVENC's unsupported special -1
+        # time-base value.
+        command.extend(["-enc_time_base:v:0", "1:90000"])
     if media.requires_main10_output:
+        if not cuda_decoder:
+            command.extend(["-pix_fmt", "p010le"])
         command.extend(
             [
-                "-pix_fmt",
-                "p010le",
                 "-profile:v",
                 "main10",
             ]
         )
     else:
-        command.extend(["-pix_fmt", "yuv420p", "-profile:v", "main"])
+        if not cuda_decoder:
+            command.extend(["-pix_fmt", "yuv420p"])
+        command.extend(["-profile:v", "main"])
 
     for option, value in (
         ("-color_trc", media.color_transfer),
@@ -150,7 +203,7 @@ def export_clip(
                 media.rotation if media.rotation <= 180 else media.rotation - 360
             )
             remux_command = [
-                "ffmpeg",
+                media_executable("ffmpeg"),
                 "-hide_banner",
                 "-loglevel",
                 "error",
@@ -174,17 +227,32 @@ def export_clip(
                 text=True,
             )
         staging_target.replace(target)
-    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        raise ExportError(f"视频输出失败：{target}") from exc
+    except FileNotFoundError as exc:
+        raise ExportError(f"视频输出失败：找不到 FFmpeg：{target}") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = _subprocess_error_detail(exc)
+        suffix = f"：{detail}" if detail else ""
+        raise ExportError(f"视频输出失败{suffix}（{target.name}）") from exc
     finally:
         encoded_target.unlink(missing_ok=True)
         staging_target.unlink(missing_ok=True)
+
+
+def _subprocess_error_detail(exc: subprocess.CalledProcessError) -> str | None:
+    """提取 FFmpeg 最后一行有意义的错误，避免界面只显示笼统失败。"""
+
+    output = exc.stderr or exc.stdout
+    if not isinstance(output, str):
+        return None
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    return lines[-1] if lines else None
 
 
 def verify_clip(
     path: Path,
     source_media: MediaInfo,
     segment: RallySegment,
+    config: AnalysisConfig | None = None,
 ) -> tuple[bool, str | None]:
     """检查输出媒体参数，并解码片段头尾。"""
 
@@ -195,8 +263,13 @@ def verify_clip(
     except Exception as exc:  # noqa: BLE001 - 统一转换为报告错误
         return False, f"ffprobe 验证失败：{exc}"
 
-    if (media.width, media.height) != (source_media.width, source_media.height):
-        return False, "输出分辨率与源视频不一致"
+    expected_dimensions = (
+        (source_media.width, source_media.height)
+        if config is None
+        else output_dimensions(source_media, config)
+    )
+    if (media.width, media.height) != expected_dimensions:
+        return False, "输出分辨率与导出画质设置不一致"
     if media.rotation != source_media.rotation:
         return False, "输出画面旋转信息与源视频不一致"
     expected_pixel_formats = (
@@ -249,7 +322,7 @@ def verify_clip(
 
     for seek_arguments in (["-ss", "0", "-t", "1"], ["-sseof", "-1"]):
         command = [
-            "ffmpeg",
+            media_executable("ffmpeg"),
             "-hide_banner",
             "-loglevel",
             "error",
@@ -273,7 +346,7 @@ def _probe_frame_timestamps(
 ) -> list[float]:
     seek_margin = 5.0 if start > 0 else 0.5
     command = [
-        "ffprobe",
+        media_executable("ffprobe"),
         "-v",
         "error",
         "-select_streams",
@@ -281,7 +354,8 @@ def _probe_frame_timestamps(
         "-read_intervals",
         f"{start:.6f}%+{duration + seek_margin:.6f}",
         "-show_entries",
-        "frame=best_effort_timestamp_time",
+        "packet=pts_time",
+        "-show_packets",
         "-of",
         "json",
         str(path),
@@ -296,15 +370,17 @@ def _probe_frame_timestamps(
     )
     payload = json.loads(result.stdout)
     timestamps: list[float] = []
-    for frame in payload.get("frames", []):
-        value = frame.get("best_effort_timestamp_time")
+    for packet in payload.get("packets", []):
+        value = packet.get("pts_time")
         try:
             timestamp = float(value)
         except (TypeError, ValueError):
             continue
         if start - 1e-3 <= timestamp <= start + duration + 1e-3:
             timestamps.append(timestamp)
-    return timestamps
+    # Compressed packets can be emitted in decode order when B-frames are used;
+    # PTS sorting restores presentation order without decoding every 4K frame.
+    return sorted(timestamps)
 
 
 def _frame_timings_match(source: list[float], output: list[float]) -> bool:

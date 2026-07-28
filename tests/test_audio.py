@@ -61,7 +61,7 @@ def test_extract_audio_uses_mono_pcm_and_configured_sample_rate(
 
     extract_audio(source, target, sample_rate=16_000)
 
-    assert captured[0] == "ffmpeg"
+    assert Path(captured[0]).name == "ffmpeg.exe"
     assert captured[captured.index("-ac") + 1] == "1"
     assert captured[captured.index("-ar") + 1] == "16000"
     assert captured[-1] == str(target)

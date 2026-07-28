@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from tennis_video_helper.models import MediaInfo, MediaProbeError
+from tennis_video_helper.runtime_tools import media_executable
 
 SUPPORTED_VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".mkv", ".m4v"})
 
@@ -34,7 +35,7 @@ def probe_media(path: Path) -> MediaInfo:
     """通过 ffprobe 读取媒体信息。"""
 
     command = [
-        "ffprobe",
+        media_executable("ffprobe"),
         "-v",
         "error",
         "-show_streams",
@@ -53,7 +54,22 @@ def probe_media(path: Path) -> MediaInfo:
             errors="replace",
         )
         payload = json.loads(result.stdout)
-    except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+    except FileNotFoundError as exc:
+        raise MediaProbeError(f"无法读取媒体信息：{path}") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        if "moov atom not found" in detail.casefold():
+            raise MediaProbeError(
+                "MOV 文件缺少 moov 索引，通常表示录制未正常结束或从手机复制不完整；"
+                f"请重新复制原文件，或先修复视频索引：{path}"
+            ) from exc
+        last_line = next(
+            (line.strip() for line in reversed(detail.splitlines()) if line.strip()),
+            "",
+        )
+        suffix = f"（{last_line}）" if last_line else ""
+        raise MediaProbeError(f"无法读取媒体信息：{path}{suffix}") from exc
+    except json.JSONDecodeError as exc:
         raise MediaProbeError(f"无法读取媒体信息：{path}") from exc
 
     return parse_probe_payload(path, payload)

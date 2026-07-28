@@ -1,3 +1,4 @@
+import json
 from typer.testing import CliRunner
 
 from tennis_video_helper import cli
@@ -73,6 +74,7 @@ def test_cli_builds_analysis_config_from_options(tmp_path, monkeypatch) -> None:
             "8",
             "--require-gpu",
             "--overwrite-existing",
+            "--original-quality",
             "--limit-duration",
             "120",
         ],
@@ -92,6 +94,7 @@ def test_cli_builds_analysis_config_from_options(tmp_path, monkeypatch) -> None:
     assert config.inference_batch_size == 8
     assert config.require_gpu is True
     assert config.gpu_available is True
+    assert config.export_original_quality is True
     assert config.overwrite_existing_output is True
     assert captured["limit_duration"] == 120.0
 
@@ -102,8 +105,9 @@ def test_progress_line_contains_machine_readable_payload() -> None:
     )
 
     assert line.startswith(cli.PROGRESS_PREFIX)
-    assert '"percent":42.5' in line
-    assert '"phase":"GPU 分析画面"' in line
+    payload = json.loads(line.removeprefix(cli.PROGRESS_PREFIX))
+    assert payload["percent"] == 42.5
+    assert payload["phase"] == "GPU 分析画面"
 
 
 def test_cli_fails_when_no_supported_videos_are_found(tmp_path, monkeypatch) -> None:

@@ -6,16 +6,23 @@ import pytest
 
 from tennis_video_helper.vision import (
     PoseDetection,
+    PoseStrokeDetector,
+    RacketCandidate,
+    _racket_confirmation_score,
     analyze_video,
     estimate_global_motion,
+    is_ball_pickup_pose,
     pose_motion_score,
+    pose_posture_score,
     select_primary_detection,
 )
+from tennis_video_helper.models import VisualEvent
 
 
 def _pose(*, offset_x: float = 0.0, wrist_shift: float = 0.0) -> np.ndarray:
     keypoints = np.zeros((17, 3), dtype=np.float32)
     keypoints[:, 2] = 1.0
+    keypoints[0, :2] = [50 + offset_x, 10]
     keypoints[5, :2] = [40 + offset_x, 30]
     keypoints[6, :2] = [60 + offset_x, 30]
     keypoints[7, :2] = [35 + offset_x, 50]
@@ -24,6 +31,22 @@ def _pose(*, offset_x: float = 0.0, wrist_shift: float = 0.0) -> np.ndarray:
     keypoints[10, :2] = [70 + offset_x + wrist_shift, 70]
     keypoints[11, :2] = [43 + offset_x, 75]
     keypoints[12, :2] = [57 + offset_x, 75]
+    keypoints[13, :2] = [42 + offset_x, 105]
+    keypoints[14, :2] = [58 + offset_x, 105]
+    keypoints[15, :2] = [40 + offset_x, 135]
+    keypoints[16, :2] = [60 + offset_x, 135]
+    return keypoints
+
+
+def _pickup_pose(*, wrist_shift: float = 0.0) -> np.ndarray:
+    keypoints = _pose(wrist_shift=wrist_shift)
+    keypoints[0, :2] = [84, 55]
+    keypoints[5, :2] = [80, 68]
+    keypoints[6, :2] = [100, 68]
+    keypoints[7, :2] = [76, 83]
+    keypoints[8, :2] = [96, 83]
+    keypoints[9, :2] = [70 - wrist_shift, 112]
+    keypoints[10, :2] = [90 + wrist_shift, 112]
     return keypoints
 
 
@@ -62,6 +85,83 @@ def test_pose_motion_score_detects_wrist_acceleration() -> None:
     swinging = _pose(wrist_shift=30)
 
     assert pose_motion_score(previous, swinging) > 0.5
+
+
+def test_pose_posture_score_rejects_bending_to_pick_up_ball() -> None:
+    assert pose_posture_score(_pose()) > 0.8
+    assert pose_posture_score(_pickup_pose()) < 0.45
+    assert is_ball_pickup_pose(_pickup_pose()) is True
+
+
+def test_pose_stroke_detector_requires_upright_swing_trajectory() -> None:
+    detector = PoseStrokeDetector(SimpleNamespace(visual_sensitivity=1.0))
+
+    assert detector.observe(0.0, _pose(), 0.0) is None
+    event = detector.observe(0.2, _pose(wrist_shift=30), 0.0)
+
+    assert event is not None
+    assert event.posture_score > 0.8
+    assert event.arm_motion_score > event.leg_motion_score
+
+
+def test_pose_stroke_detector_rejects_pickup_even_when_arms_move() -> None:
+    detector = PoseStrokeDetector(SimpleNamespace(visual_sensitivity=1.0))
+
+    assert detector.observe(0.0, _pickup_pose(), 0.0) is None
+    assert detector.observe(0.2, _pickup_pose(wrist_shift=35), 0.0) is None
+
+
+def test_pose_stroke_detector_rejects_running_arm_swing() -> None:
+    detector = PoseStrokeDetector(SimpleNamespace(visual_sensitivity=1.0))
+    running = _pose(wrist_shift=12)
+    running[13, 0] -= 22
+    running[15, 0] -= 26
+    running[14, 0] += 22
+    running[16, 0] += 26
+
+    assert detector.observe(0.0, _pose(), 0.0) is None
+    assert detector.observe(0.2, running, 0.0) is None
+
+
+def test_pose_stroke_detector_rejects_person_walking_into_camera() -> None:
+    detector = PoseStrokeDetector(SimpleNamespace(visual_sensitivity=1.0))
+    close_box = np.array([20.0, 20.0, 300.0, 650.0], dtype=np.float32)
+
+    assert detector.observe(
+        0.0,
+        _pose(),
+        0.0,
+        box=close_box,
+        frame_height=720,
+    ) is None
+    assert detector.observe(
+        0.2,
+        _pose(wrist_shift=40),
+        0.0,
+        box=close_box,
+        frame_height=720,
+    ) is None
+
+
+def test_racket_confirmation_requires_detection_near_moving_wrist() -> None:
+    candidate = RacketCandidate(
+        event=VisualEvent(1.0, 0.9, 0.9, 0.0),
+        frame=np.zeros((120, 160, 3), dtype=np.uint8),
+        wrist_points=(np.array([80.0, 60.0], dtype=np.float32),),
+        person_height=100.0,
+        frame_index=0,
+    )
+    near = SimpleNamespace(
+        box=np.array([85.0, 55.0, 110.0, 90.0], dtype=np.float32),
+        confidence=0.6,
+    )
+    far = SimpleNamespace(
+        box=np.array([140.0, 100.0, 155.0, 118.0], dtype=np.float32),
+        confidence=0.9,
+    )
+
+    assert _racket_confirmation_score(candidate, [near]) == 0.6
+    assert _racket_confirmation_score(candidate, [far]) == 0.0
 
 
 def test_estimate_global_motion_detects_shared_frame_translation() -> None:
@@ -205,8 +305,8 @@ def test_analyze_video_rejects_cpu_when_gpu_is_required(monkeypatch, tmp_path) -
 def test_analyze_video_uses_real_frame_timestamps_for_variable_fps(monkeypatch, tmp_path) -> None:
     poses = iter(
         [
-            [PoseDetection(np.array([0, 0, 100, 100]), _pose(), 0.9)],
-            [PoseDetection(np.array([0, 0, 100, 100]), _pose(wrist_shift=30), 0.9)],
+            [PoseDetection(np.array([0, 0, 100, 60]), _pose(), 0.9)],
+            [PoseDetection(np.array([0, 0, 100, 60]), _pose(wrist_shift=30), 0.9)],
         ]
     )
 
