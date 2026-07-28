@@ -679,7 +679,7 @@ class MainWindow(QMainWindow):
 
         eyebrow = QLabel("AI TENNIS WORKFLOW")
         eyebrow.setObjectName("eyebrow")
-        title = QLabel("网球回合分析与复核")
+        title = QLabel("网球回合精选")
         title.setObjectName("heroTitle")
         subtitle = QLabel("自动识别候选 → 逐段预览 → 勾选导出")
         subtitle.setObjectName("heroSubtitle")
@@ -729,8 +729,7 @@ class MainWindow(QMainWindow):
 
         view_menu = self.menuBar().addMenu("视图(&V)")
         self.parameters_action = QAction("参数调节", self)
-        self.parameters_action.setCheckable(True)
-        self.parameters_action.toggled.connect(self._set_parameter_panel_visible)
+        self.parameters_action.triggered.connect(self._show_parameter_panel)
         view_menu.addAction(self.parameters_action)
 
         help_menu = self.menuBar().addMenu("帮助(&H)")
@@ -747,22 +746,10 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(8)
 
-        self.auto_button = QPushButton("分析与复核")
-        self.auto_button.setObjectName("modeButton")
-        self.auto_button.setCheckable(True)
-        self.auto_button.setChecked(True)
-        self.auto_button.setToolTip("自动生成候选片段，再由你逐段确认并导出")
-        self.auto_button.clicked.connect(
-            lambda _checked=False: self.parameters_action.setChecked(False)
-        )
         self.settings_button = QPushButton("参数调节")
-        self.settings_button.setObjectName("modeButton")
-        self.settings_button.setCheckable(True)
+        self.settings_button.setObjectName("navigationButton")
         self.settings_button.setToolTip("调节识别、GPU 和导出参数")
-        self.settings_button.clicked.connect(
-            lambda checked=False: self.parameters_action.setChecked(checked)
-        )
-        layout.addWidget(self.auto_button)
+        self.settings_button.clicked.connect(self._show_parameter_panel)
         layout.addWidget(self.settings_button)
 
         default_input = Path.cwd() / "网球"
@@ -780,11 +767,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.output_edit, 2)
         return bar
 
-    def _set_parameter_panel_visible(self, visible: bool) -> None:
-        self.workbench_card.setVisible(not visible)
-        self.parameter_card.setVisible(visible)
-        self.settings_button.setChecked(visible)
-        self.auto_button.setChecked(not visible)
+    def _show_parameter_panel(self, _checked: bool = False) -> None:
+        self.workbench_card.setVisible(False)
+        self.parameter_card.setVisible(True)
+        self.settings_button.setVisible(False)
+        self.page_scroll.verticalScrollBar().setValue(0)
+
+    def _show_review_workspace(self, _checked: bool = False) -> None:
+        self.parameter_card.setVisible(False)
+        self.workbench_card.setVisible(True)
+        self.settings_button.setVisible(True)
         self.page_scroll.verticalScrollBar().setValue(0)
 
     def _show_about(self) -> None:
@@ -1004,9 +996,28 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_parameter_card(self) -> QFrame:
-        card = _card("分析参数")
-        layout = card.layout()
+        card = QFrame()
+        card.setObjectName("card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 12, 16, 14)
+        layout.setSpacing(9)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        header = QHBoxLayout()
+        title = QLabel("参数调节")
+        title.setObjectName("sectionTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        title.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        title.setFixedHeight(32)
+        header.addWidget(title)
+        header.addStretch()
+        self.back_to_review_button = QPushButton("← 返回候选片段")
+        self.back_to_review_button.setObjectName("navigationButton")
+        self.back_to_review_button.setToolTip("返回候选片段预览与导出页面")
+        self.back_to_review_button.clicked.connect(self._show_review_workspace)
+        header.addWidget(self.back_to_review_button)
+        layout.addLayout(header)
+
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
@@ -2361,10 +2372,15 @@ QPushButton#primaryButton {
 }
 QPushButton#primaryButton:hover { background: #c8ff73; }
 QPushButton#dangerButton { color: #ffb7b7; background: #352426; border-color: #573437; }
-QPushButton#modeButton:checked {
-    color: #11150c;
-    background: #b9f45a;
-    border-color: #c8ff73;
+QPushButton#navigationButton {
+    color: #dfe3e7;
+    background: #24272c;
+    border-color: #3a3e45;
+}
+QPushButton#navigationButton:hover {
+    color: #ffffff;
+    background: #30343a;
+    border-color: #59606a;
 }
 QFrame#parameterTile {
     background: #121417;

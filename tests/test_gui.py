@@ -314,7 +314,7 @@ def test_parameter_tiles_and_large_buttons_do_not_overlap() -> None:
     window = MainWindow()
     window.resize(1100, 760)
     window.show()
-    window.parameters_action.setChecked(True)
+    window.parameters_action.trigger()
     app.processEvents()
 
     tiles = window.findChildren(ParameterTile)
@@ -346,16 +346,24 @@ def test_standard_menu_contains_input_output_and_parameter_actions() -> None:
     assert any("编辑" in title for title in menu_titles)
     assert any("视图" in title for title in menu_titles)
     assert any("帮助" in title for title in menu_titles)
-    assert window.auto_button.text() == "分析与复核"
+    assert "分析与复核" not in window.findChild(QLabel, "heroTitle").text()
     assert window.start_button.text() == "开始分析"
     assert window.settings_button.text() == "参数调节"
     assert window.parameters_action.text() == "参数调节"
+    assert window.parameters_action.isCheckable() is False
+    assert window.settings_button.isCheckable() is False
     assert window.parameter_card.isHidden() is True
 
     QTest.mouseClick(window.settings_button, Qt.MouseButton.LeftButton)
     assert window.parameter_card.isVisible() is True
-    assert window.settings_button.isChecked() is True
+    assert window.settings_button.isHidden() is True
     assert window.workbench_card.isHidden() is True
+    assert window.back_to_review_button.text() == "← 返回候选片段"
+
+    QTest.mouseClick(window.back_to_review_button, Qt.MouseButton.LeftButton)
+    assert window.parameter_card.isHidden() is True
+    assert window.workbench_card.isVisible() is True
+    assert window.settings_button.isVisible() is True
 
     window.close()
     app.processEvents()
@@ -417,13 +425,13 @@ def test_parameter_page_content_stays_aligned_to_top() -> None:
     window = MainWindow()
     window.resize(1440, 920)
     window.show()
-    window.parameters_action.setChecked(True)
+    window.parameters_action.trigger()
     app.processEvents()
 
     section_title = window.parameter_card.findChild(QLabel, "sectionTitle")
     first_tile = window.findChildren(ParameterTile)[0]
     assert section_title is not None
-    assert section_title.height() == 24
+    assert section_title.height() == 32
     assert first_tile.geometry().top() - section_title.geometry().bottom() < 24
 
     window.close()
