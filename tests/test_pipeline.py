@@ -8,8 +8,10 @@ from tennis_video_helper.models import AudioEvent, MediaInfo, VisualEvent
 from tennis_video_helper.pipeline import (
     PipelineServices,
     _replace_output_dir,
+    prepare_review_batch,
     process_batch,
 )
+from tennis_video_helper.review import discard_review_session, load_review_session
 
 
 def _media(path: Path, *, audio: bool = True) -> MediaInfo:
@@ -224,6 +226,53 @@ def test_process_batch_reports_monotonic_progress(tmp_path: Path) -> None:
     assert any(update.phase == "GPU 分析画面" for update in updates)
     assert updates[-1].current_video == source
     assert updates[-1].phase == "全部任务完成"
+
+
+def test_prepare_review_batch_stages_verified_candidates_without_publishing(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.mp4"
+    output = tmp_path / "output"
+
+    def export_clip(_media, _segment, target: Path, _config) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"preview")
+
+    services = PipelineServices(
+        scan_videos=lambda _: [source],
+        probe_media=lambda _: _media(source),
+        extract_audio=lambda _source, target, _sample_rate: target.touch(),
+        load_audio=lambda _: (np.zeros(100, dtype=np.float32), 22_050),
+        detect_audio_events=lambda *_args: [
+            AudioEvent(float(timestamp), 1.0, 10.0)
+            for timestamp in range(1, 14, 2)
+        ],
+        analyze_video=lambda *_args: [
+            VisualEvent(float(timestamp), 1.0, 1.0, 0.0)
+            for timestamp in range(1, 14, 2)
+        ],
+        export_clip=export_clip,
+        verify_clip=lambda *_args: (True, None),
+        write_reports=lambda *_args: None,
+    )
+
+    result = prepare_review_batch(
+        source,
+        output,
+        AnalysisConfig(overwrite_existing_output=True),
+        services=services,
+    )
+
+    assert result.failure_count == 0
+    assert result.session is not None
+    assert result.session.manifest_path.exists()
+    assert not (output / source.stem).exists()
+    loaded = load_review_session(result.session.manifest_path)
+    assert len(loaded.clips) == 1
+    assert loaded.clips[0].path.exists()
+    assert len(loaded.clips[0].hits) >= 2
+    assert loaded.clips[0].hits[0].timestamp >= 0
+    discard_review_session(loaded)
 
 
 def test_overwrite_replaces_old_result_only_after_success(tmp_path: Path) -> None:

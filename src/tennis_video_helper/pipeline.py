@@ -14,7 +14,11 @@ from typing import Callable
 import numpy as np
 
 from tennis_video_helper.config import AnalysisConfig
-from tennis_video_helper.fusion import build_rally_segments, fuse_events
+from tennis_video_helper.fusion import (
+    VISUAL_CONFIRMATION_THRESHOLD,
+    build_rally_segments,
+    fuse_events,
+)
 from tennis_video_helper.models import (
     AudioEvent,
     ClipRecord,
@@ -22,6 +26,13 @@ from tennis_video_helper.models import (
     MediaInfo,
     RallySegment,
     VisualEvent,
+)
+from tennis_video_helper.review import (
+    ReviewClipCandidate,
+    ReviewHit,
+    ReviewSession,
+    ReviewVideoCandidate,
+    save_review_session,
 )
 
 
@@ -98,6 +109,22 @@ class BatchResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewBatchResult:
+    """后台准备好候选片段后返回给 GUI 的复核会话。"""
+
+    results: tuple[VideoProcessResult, ...]
+    session: ReviewSession | None
+
+    @property
+    def success_count(self) -> int:
+        return sum(result.succeeded for result in self.results)
+
+    @property
+    def failure_count(self) -> int:
+        return len(self.results) - self.success_count
+
+
+@dataclass(frozen=True, slots=True)
 class ProgressUpdate:
     """供 CLI/UI 展示的批处理进度快照。"""
 
@@ -110,6 +137,15 @@ class ProgressUpdate:
 
 ProgressCallback = Callable[[ProgressUpdate], None]
 VideoProgressCallback = Callable[[float, str], None]
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedVideoAssets:
+    media: MediaInfo
+    records: tuple[ClipRecord, ...]
+    audio_events: tuple[AudioEvent, ...]
+    visual_events: tuple[VisualEvent, ...]
+    fused_events: tuple[FusedEvent, ...]
 
 
 def process_batch(
@@ -186,6 +222,142 @@ def process_batch(
     return BatchResult(tuple(results))
 
 
+def prepare_review_batch(
+    input_path: Path,
+    output_root: Path,
+    config: AnalysisConfig,
+    *,
+    limit_duration: float | None = None,
+    services: PipelineServices | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> ReviewBatchResult:
+    """生成经过验证的候选片段，但在人工勾选前不发布正式结果。"""
+
+    active_services = services or PipelineServices.defaults()
+    sources = active_services.scan_videos(Path(input_path))
+    output_root = Path(output_root)
+    output_root.mkdir(parents=True, exist_ok=True)
+    session_root = Path(
+        tempfile.mkdtemp(prefix=".tennis-review-", dir=output_root)
+    )
+    results: list[VideoProcessResult] = []
+    review_videos: list[ReviewVideoCandidate] = []
+    reserved_outputs: set[Path] = set()
+    video_total = len(sources)
+    if progress_callback is not None:
+        progress_callback(ProgressUpdate(0.0, "准备候选复核", None, 0, video_total))
+
+    for video_index, source in enumerate(sources, start=1):
+        def report_video_progress(fraction: float, phase: str) -> None:
+            if progress_callback is None:
+                return
+            bounded = min(1.0, max(0.0, fraction))
+            overall = ((video_index - 1) + bounded) / max(1, video_total) * 100
+            progress_callback(
+                ProgressUpdate(
+                    percent=overall,
+                    phase=phase,
+                    current_video=source,
+                    video_index=video_index,
+                    video_total=video_total,
+                )
+            )
+
+        staging_dir = session_root / f"{video_index:03d}_{source.stem}"
+        final_output_dir = _planned_output_dir(
+            output_root,
+            source.stem,
+            overwrite=config.overwrite_existing_output,
+            reserved=reserved_outputs,
+        )
+        reserved_outputs.add(final_output_dir)
+        report_video_progress(0.0, "读取视频信息")
+        try:
+            media = _load_supported_media(source, active_services)
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            assets = _prepare_video_assets(
+                source,
+                media,
+                staging_dir,
+                config,
+                limit_duration,
+                active_services,
+                report_video_progress,
+            )
+            failed_records = [record for record in assets.records if not record.verified]
+            if failed_records:
+                detail = _failed_record_summary(failed_records)
+                raise RuntimeError(f"新候选包含验证失败的片段：{detail}")
+
+            clips = tuple(
+                ReviewClipCandidate(
+                    id=f"{video_index}:{record.index}",
+                    index=record.index,
+                    path=record.path,
+                    segment=record.segment,
+                    hits=_review_hits(record.segment, assets.fused_events, config),
+                )
+                for record in assets.records
+            )
+            review_videos.append(
+                ReviewVideoCandidate(
+                    source=source,
+                    output_dir=final_output_dir,
+                    staging_dir=staging_dir,
+                    media=assets.media,
+                    clips=clips,
+                    audio_events=assets.audio_events,
+                    visual_events=assets.visual_events,
+                    fused_events=assets.fused_events,
+                )
+            )
+            results.append(
+                VideoProcessResult(
+                    source=source,
+                    output_dir=final_output_dir,
+                    records=assets.records,
+                    error=None,
+                )
+            )
+            report_video_progress(1.0, "候选片段已准备")
+        except Exception as exc:  # noqa: BLE001 - 单文件错误不阻断批处理
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            results.append(
+                VideoProcessResult(source=source, output_dir=None, error=str(exc))
+            )
+            report_video_progress(1.0, "当前视频失败")
+
+    session: ReviewSession | None = None
+    if review_videos:
+        session = ReviewSession(
+            root_dir=session_root,
+            overwrite_existing_output=config.overwrite_existing_output,
+            videos=tuple(review_videos),
+        )
+        save_review_session(session)
+    else:
+        shutil.rmtree(session_root, ignore_errors=True)
+
+    if progress_callback is not None:
+        final_phase = "没有找到视频"
+        if sources:
+            final_phase = (
+                "等待人工确认候选片段"
+                if session is not None
+                else "全部任务结束（含失败）"
+            )
+        progress_callback(
+            ProgressUpdate(
+                100.0,
+                final_phase,
+                sources[-1] if sources else None,
+                video_total,
+                video_total,
+            )
+        )
+    return ReviewBatchResult(tuple(results), session)
+
+
 def _process_video(
     source: Path,
     output_root: Path,
@@ -194,123 +366,47 @@ def _process_video(
     services: PipelineServices,
     progress_callback: VideoProgressCallback,
 ) -> VideoProcessResult:
-    media = services.probe_media(source)
-    progress_callback(0.04, "检查媒体信息")
-    if not media.audio_codec:
-        raise RuntimeError(f"视频没有音轨，第一版无法执行音画融合：{source}")
-    if media.is_dolby_vision and not media.has_hlg_compatible_dolby_base_layer:
-        raise RuntimeError(
-            f"检测到不支持的 Dolby Vision Profile，仅放行 HLG 兼容的 Profile 8.4：{source}"
-        )
+    media = _load_supported_media(source, services)
 
     output_dir, working_output_dir = _prepare_output_dir(
         output_root,
         source.stem,
         overwrite=config.overwrite_existing_output,
     )
-    clips_dir = working_output_dir / "clips"
-    clips_dir.mkdir(parents=True, exist_ok=True)
-    progress_callback(0.07, "并行分析声音与画面")
-
     try:
-        def report_visual_progress(fraction: float) -> None:
-            progress_callback(
-                0.08 + min(1.0, max(0.0, fraction)) * 0.67,
-                "GPU 分析画面",
-            )
-
-        with tempfile.TemporaryDirectory(prefix="tennis-video-helper-") as temporary:
-            audio_path = Path(temporary) / "audio.wav"
-            with ThreadPoolExecutor(
-                max_workers=2,
-                thread_name_prefix="tennis-analysis",
-            ) as executor:
-                audio_future = executor.submit(
-                    _analyze_audio_track,
-                    source,
-                    audio_path,
-                    config,
-                    limit_duration,
-                    services,
-                )
-                visual_future = executor.submit(
-                    services.analyze_video,
-                    source,
-                    config,
-                    limit_duration,
-                    report_visual_progress,
-                )
-                audio_events = audio_future.result()
-                visual_events = visual_future.result()
-        progress_callback(0.76, "融合声音与动作")
-        fused_events = fuse_events(audio_events, visual_events, config)
-        effective_duration = (
-            min(media.duration, limit_duration)
-            if limit_duration is not None
-            else media.duration
+        assets = _prepare_video_assets(
+            source,
+            media,
+            working_output_dir,
+            config,
+            limit_duration,
+            services,
+            progress_callback,
         )
-        segments = build_rally_segments(fused_events, effective_duration, config)
-        progress_callback(0.80, "导出精选片段")
-
-        with ThreadPoolExecutor(
-            max_workers=2,
-            thread_name_prefix="tennis-export",
-        ) as executor:
-            export_futures = {
-                executor.submit(
-                    _export_and_verify_segment,
-                    index,
-                    segment,
-                    clips_dir,
-                    media,
-                    config,
-                    services,
-                ): index
-                for index, segment in enumerate(segments, start=1)
-            }
-            records = []
-            for completed_count, future in enumerate(
-                as_completed(export_futures),
-                start=1,
-            ):
-                records.append(future.result())
-                progress_callback(
-                    0.80 + 0.17 * completed_count / max(1, len(export_futures)),
-                    f"导出精选片段 {completed_count}/{len(export_futures)}",
-                )
-        records.sort(key=lambda record: record.index)
         published_records = [
             replace(record, path=output_dir / "clips" / record.path.name)
-            for record in records
+            for record in assets.records
         ]
         failed_records = [record for record in published_records if not record.verified]
         if config.overwrite_existing_output and failed_records:
-            error_details = list(
-                dict.fromkeys(record.error for record in failed_records if record.error)
-            )
-            detail = "；".join(error_details[:3])
-            if len(error_details) > 3:
-                detail += f"；另有 {len(error_details) - 3} 种错误"
-            summary = f"新结果有 {len(failed_records)} 个片段失败"
-            if detail:
-                summary += f"：{detail}"
-            raise RuntimeError(f"{summary}，旧结果已保留")
+            summary = _failed_record_summary(failed_records)
+            raise RuntimeError(f"新结果有 {len(failed_records)} 个片段失败：{summary}，旧结果已保留")
 
         progress_callback(0.98, "生成分析报告")
         services.write_reports(
             working_output_dir,
-            media,
+            assets.media,
             published_records,
-            audio_events,
-            visual_events,
-            fused_events,
+            list(assets.audio_events),
+            list(assets.visual_events),
+            list(assets.fused_events),
         )
         _write_processing_log(
             working_output_dir,
             source,
-            len(audio_events),
-            len(visual_events),
-            len(fused_events),
+            len(assets.audio_events),
+            len(assets.visual_events),
+            len(assets.fused_events),
             published_records,
         )
         if working_output_dir != output_dir:
@@ -372,6 +468,31 @@ def _next_available_output_dir(output_root: Path, stem: str) -> Path:
     return candidate
 
 
+def _planned_output_dir(
+    output_root: Path,
+    stem: str,
+    *,
+    overwrite: bool,
+    reserved: set[Path],
+) -> Path:
+    """为复核会话预留最终路径，但在用户确认前不创建正式目录。"""
+
+    candidate = output_root / stem
+    if overwrite:
+        if candidate not in reserved:
+            return candidate
+        suffix = 2
+        while output_root / f"{stem}_{suffix}" in reserved:
+            suffix += 1
+        return output_root / f"{stem}_{suffix}"
+
+    suffix = 2
+    while candidate.exists() or candidate in reserved:
+        candidate = output_root / f"{stem}_{suffix}"
+        suffix += 1
+    return candidate
+
+
 def _prepare_output_dir(
     output_root: Path,
     stem: str,
@@ -406,6 +527,128 @@ def _replace_output_dir(working_dir: Path, output_dir: Path) -> None:
         raise
     if backup_dir is not None:
         shutil.rmtree(backup_dir, ignore_errors=True)
+
+
+def _load_supported_media(source: Path, services: PipelineServices) -> MediaInfo:
+    media = services.probe_media(source)
+    if not media.audio_codec:
+        raise RuntimeError(f"视频没有音轨，第一版无法执行音画融合：{source}")
+    if media.is_dolby_vision and not media.has_hlg_compatible_dolby_base_layer:
+        raise RuntimeError(
+            f"检测到不支持的 Dolby Vision Profile，仅放行 HLG 兼容的 Profile 8.4：{source}"
+        )
+    return media
+
+
+def _prepare_video_assets(
+    source: Path,
+    media: MediaInfo,
+    working_output_dir: Path,
+    config: AnalysisConfig,
+    limit_duration: float | None,
+    services: PipelineServices,
+    progress_callback: VideoProgressCallback,
+) -> _PreparedVideoAssets:
+    progress_callback(0.04, "检查媒体信息")
+    clips_dir = working_output_dir / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    progress_callback(0.07, "并行分析声音与画面")
+
+    def report_visual_progress(fraction: float) -> None:
+        progress_callback(
+            0.08 + min(1.0, max(0.0, fraction)) * 0.67,
+            "GPU 分析画面",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="tennis-video-helper-") as temporary:
+        audio_path = Path(temporary) / "audio.wav"
+        with ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="tennis-analysis",
+        ) as executor:
+            audio_future = executor.submit(
+                _analyze_audio_track,
+                source,
+                audio_path,
+                config,
+                limit_duration,
+                services,
+            )
+            visual_future = executor.submit(
+                services.analyze_video,
+                source,
+                config,
+                limit_duration,
+                report_visual_progress,
+            )
+            audio_events = audio_future.result()
+            visual_events = visual_future.result()
+    progress_callback(0.76, "融合声音与动作")
+    fused_events = fuse_events(audio_events, visual_events, config)
+    effective_duration = (
+        min(media.duration, limit_duration)
+        if limit_duration is not None
+        else media.duration
+    )
+    segments = build_rally_segments(fused_events, effective_duration, config)
+    progress_callback(0.80, "生成候选预览片段")
+
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="tennis-export") as executor:
+        export_futures = {
+            executor.submit(
+                _export_and_verify_segment,
+                index,
+                segment,
+                clips_dir,
+                media,
+                config,
+                services,
+            ): index
+            for index, segment in enumerate(segments, start=1)
+        }
+        records: list[ClipRecord] = []
+        for completed_count, future in enumerate(as_completed(export_futures), start=1):
+            records.append(future.result())
+            progress_callback(
+                0.80 + 0.17 * completed_count / max(1, len(export_futures)),
+                f"生成候选预览 {completed_count}/{len(export_futures)}",
+            )
+    records.sort(key=lambda record: record.index)
+    return _PreparedVideoAssets(
+        media=media,
+        records=tuple(records),
+        audio_events=tuple(audio_events),
+        visual_events=tuple(visual_events),
+        fused_events=tuple(fused_events),
+    )
+
+
+def _review_hits(
+    segment: RallySegment,
+    fused_events: tuple[FusedEvent, ...],
+    config: AnalysisConfig,
+) -> tuple[ReviewHit, ...]:
+    hits = [
+        ReviewHit(
+            timestamp=round(event.timestamp - segment.output_start, 3),
+            source_timestamp=round(event.timestamp, 3),
+            confidence=round(event.confidence, 4),
+            reason=event.reason,
+        )
+        for event in fused_events
+        if segment.output_start <= event.timestamp <= segment.output_end
+        and event.visual_confidence >= VISUAL_CONFIRMATION_THRESHOLD
+        and event.confidence >= config.rally_support_threshold
+    ]
+    return tuple(hits)
+
+
+def _failed_record_summary(records: list[ClipRecord]) -> str:
+    error_details = list(dict.fromkeys(record.error for record in records if record.error))
+    detail = "；".join(error_details[:3])
+    if len(error_details) > 3:
+        detail += f"；另有 {len(error_details) - 3} 种错误"
+    return detail or "未知验证错误"
 
 
 def _replace_path_with_retry(

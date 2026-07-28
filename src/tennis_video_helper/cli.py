@@ -13,11 +13,16 @@ import typer
 
 from tennis_video_helper.config import AnalysisConfig
 from tennis_video_helper.optimizer import OPTIMIZATION_PREFIX
-from tennis_video_helper.pipeline import ProgressUpdate, process_batch
+from tennis_video_helper.pipeline import (
+    ProgressUpdate,
+    prepare_review_batch,
+    process_batch,
+)
 from tennis_video_helper.runtime_tools import media_executable, media_tool_available
 
 PROGRESS_PREFIX = "TVH_PROGRESS "
 ACCELERATION_PREFIX = "TVH_ACCELERATION "
+REVIEW_PREFIX = "TVH_REVIEW "
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +157,12 @@ def analyze(
         "--progress-json",
         hidden=True,
     ),
+    prepare_review: bool = typer.Option(
+        False,
+        "--prepare-review",
+        hidden=True,
+        help="生成候选预览清单，等待桌面端人工确认后再发布。",
+    ),
 ) -> None:
     """分析视频并通过 NVENC 输出持续时间较长的回合。"""
 
@@ -208,13 +219,22 @@ def analyze(
         with progress_lock:
             typer.echo(_format_progress_line(update))
 
-    result = process_batch(
-        input_path,
-        output,
-        config,
-        limit_duration=limit_duration,
-        progress_callback=emit_progress if progress_json else None,
-    )
+    if prepare_review:
+        result = prepare_review_batch(
+            input_path,
+            output,
+            config,
+            limit_duration=limit_duration,
+            progress_callback=emit_progress if progress_json else None,
+        )
+    else:
+        result = process_batch(
+            input_path,
+            output,
+            config,
+            limit_duration=limit_duration,
+            progress_callback=emit_progress if progress_json else None,
+        )
     if not result.results:
         typer.echo(
             "失败：没有找到支持的视频（支持 MP4、MOV、MKV 和 M4V）。",
@@ -224,20 +244,36 @@ def analyze(
     for video_result in result.results:
         if video_result.succeeded:
             verified = sum(record.verified for record in video_result.records)
-            typer.echo(
-                f"完成：{video_result.source.name}，"
-                f"输出 {verified}/{len(video_result.records)} 个已验证片段，"
-                f"目录：{video_result.output_dir}"
-            )
+            if prepare_review:
+                typer.echo(
+                    f"候选已准备：{video_result.source.name}，"
+                    f"共 {verified} 个已验证片段，等待人工确认。"
+                )
+            else:
+                typer.echo(
+                    f"完成：{video_result.source.name}，"
+                    f"输出 {verified}/{len(video_result.records)} 个已验证片段，"
+                    f"目录：{video_result.output_dir}"
+                )
         else:
             typer.echo(
                 f"失败：{video_result.source.name}：{video_result.error}",
                 err=True,
             )
 
-    typer.echo(
-        f"批处理结束：成功 {result.success_count}，失败 {result.failure_count}。"
-    )
+    if prepare_review and result.session is not None:
+        typer.echo(
+            REVIEW_PREFIX
+            + json.dumps(
+                {
+                    "manifest": str(result.session.manifest_path),
+                    "candidate_count": len(result.session.clips),
+                },
+                ensure_ascii=True,
+                separators=(",", ":"),
+            )
+        )
+    typer.echo(f"批处理结束：成功 {result.success_count}，失败 {result.failure_count}。")
     if result.failure_count:
         raise typer.Exit(code=1)
 

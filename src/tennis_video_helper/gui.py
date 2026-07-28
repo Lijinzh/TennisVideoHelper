@@ -15,16 +15,29 @@ from pathlib import Path
 
 import cv2
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import (
+    QProcess,
+    QProcessEnvironment,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+    QUrl,
+    Signal,
+)
 from PySide6.QtGui import (
+    QAction,
     QColor,
     QDesktopServices,
     QFont,
     QIcon,
     QImage,
     QPainter,
+    QPen,
     QPixmap,
 )
+from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -38,23 +51,33 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QListWidget,
+    QListWidgetItem,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from tennis_video_helper.cli import ACCELERATION_PREFIX, PROGRESS_PREFIX
+from tennis_video_helper.cli import ACCELERATION_PREFIX, PROGRESS_PREFIX, REVIEW_PREFIX
 from tennis_video_helper.media import SUPPORTED_VIDEO_EXTENSIONS, scan_videos
 from tennis_video_helper.optimizer import (
     OPTIMIZATION_PREFIX,
     OptimizationProfile,
     load_profile,
+)
+from tennis_video_helper.review import (
+    ReviewClipCandidate,
+    ReviewSession,
+    ReviewVideoCandidate,
+    discard_review_session,
+    load_review_session,
+    publish_review_session,
 )
 
 
@@ -119,6 +142,7 @@ def build_analyze_arguments(values: AnalysisFormValues) -> list[str]:
         "--batch-size",
         str(values.inference_batch_size),
         "--progress-json",
+        "--prepare-review",
     ]
     arguments.append("--require-gpu" if values.require_gpu else "--allow-cpu")
     arguments.append(
@@ -301,6 +325,18 @@ def parse_optimization_line(line: str) -> dict[str, object] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def parse_review_line(line: str) -> dict[str, object] | None:
+    """解析后台生成的候选复核清单位置。"""
+
+    if not line.startswith(REVIEW_PREFIX):
+        return None
+    try:
+        payload = json.loads(line[len(REVIEW_PREFIX) :])
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def format_clock(seconds: float) -> str:
     """将秒数格式化为便于等待时阅读的时间。"""
 
@@ -318,9 +354,8 @@ class PreviewLabel(QLabel):
         self._source_pixmap = QPixmap()
         self.setObjectName("videoPreview")
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setMinimumSize(220, 255)
-        self.setMaximumSize(260, 310)
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self.setMinimumSize(420, 300)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_source_pixmap(self, pixmap: QPixmap | None) -> None:
         self._source_pixmap = pixmap or QPixmap()
@@ -345,6 +380,90 @@ class PreviewLabel(QLabel):
         y = target.y() + (target.height() - scaled.height()) // 2
         painter.drawPixmap(x, y, scaled)
         painter.end()
+
+
+class HitTimeline(QWidget):
+    """显示播放进度与模型识别击球点的可点击时间线。"""
+
+    seekRequested = Signal(int)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._duration_ms = 0
+        self._position_ms = 0
+        self._hit_positions_ms: tuple[int, ...] = ()
+        self.setObjectName("hitTimeline")
+        self.setMinimumHeight(54)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("点击时间线可跳转；绿色点表示识别出的击球位置")
+
+    def set_hits(self, duration_ms: int, hit_positions_ms: list[int]) -> None:
+        self._duration_ms = max(0, duration_ms)
+        self._position_ms = 0
+        self._hit_positions_ms = tuple(
+            sorted(max(0, position) for position in hit_positions_ms)
+        )
+        self.update()
+
+    def set_duration(self, duration_ms: int) -> None:
+        self._duration_ms = max(0, duration_ms)
+        self.update()
+
+    def set_position(self, position_ms: int) -> None:
+        self._position_ms = max(0, position_ms)
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        track = QRectF(18, self.height() / 2 - 1.5, max(1, self.width() - 36), 3)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#343940"))
+        painter.drawRoundedRect(track, 1.5, 1.5)
+
+        progress_fraction = self._fraction(self._position_ms)
+        progress_track = QRectF(track.x(), track.y(), track.width() * progress_fraction, 3)
+        painter.setBrush(QColor("#9add43"))
+        painter.drawRoundedRect(progress_track, 1.5, 1.5)
+
+        active_window_ms = 320
+        for hit_ms in self._hit_positions_ms:
+            x = track.x() + track.width() * self._fraction(hit_ms)
+            active = abs(self._position_ms - hit_ms) <= active_window_ms
+            passed = hit_ms < self._position_ms
+            if active:
+                painter.setBrush(QColor("#111316"))
+                painter.setPen(QPen(QColor("#c8ff73"), 3))
+                painter.drawEllipse(QRectF(x - 8, track.center().y() - 8, 16, 16))
+            else:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor("#9add43" if passed else "#d8f5a8"))
+                radius = 4 if passed else 3.5
+                painter.drawEllipse(
+                    QRectF(x - radius, track.center().y() - radius, radius * 2, radius * 2)
+                )
+
+        playhead_x = track.x() + track.width() * progress_fraction
+        painter.setPen(QPen(QColor("#ffffff"), 2))
+        painter.drawLine(
+            int(playhead_x),
+            int(track.center().y() - 13),
+            int(playhead_x),
+            int(track.center().y() + 13),
+        )
+        painter.end()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if event.button() == Qt.MouseButton.LeftButton and self._duration_ms > 0:
+            fraction = min(1.0, max(0.0, (event.position().x() - 18) / max(1, self.width() - 36)))
+            self.seekRequested.emit(round(fraction * self._duration_ms))
+        super().mousePressEvent(event)
+
+    def _fraction(self, position_ms: int) -> float:
+        if self._duration_ms <= 0:
+            return 0.0
+        return min(1.0, max(0.0, position_ms / self._duration_ms))
 
 
 class _LargeArrowButtons:
@@ -450,6 +569,24 @@ class MainWindow(QMainWindow):
         self._acceleration_status: dict[str, object] = {}
         self._process_mode = "analysis"
         self._optimization_profile: OptimizationProfile | None = None
+        self._review_manifest_path: Path | None = None
+        self._review_session: ReviewSession | None = None
+        self._review_candidates: dict[
+            str, tuple[ReviewVideoCandidate, ReviewClipCandidate]
+        ] = {}
+        self._current_candidate_id: str | None = None
+        self._loading_candidates = False
+        self._last_worker_message = ""
+
+        self.audio_output = QAudioOutput(self)
+        self.audio_output.setVolume(0.75)
+        self.media_player = QMediaPlayer(self)
+        self.media_player.setAudioOutput(self.audio_output)
+        self.media_player.positionChanged.connect(self._preview_position_changed)
+        self.media_player.durationChanged.connect(self._preview_duration_changed)
+        self.media_player.playbackStateChanged.connect(self._preview_state_changed)
+        self.media_player.mediaStatusChanged.connect(self._preview_media_status_changed)
+        self.media_player.errorOccurred.connect(self._preview_error)
 
         self.elapsed_timer = QTimer(self)
         self.elapsed_timer.setInterval(1000)
@@ -460,6 +597,7 @@ class MainWindow(QMainWindow):
         self.resize(1440, 920)
         self.setWindowIcon(_make_icon())
         self.setStyleSheet(STYLE_SHEET)
+        self._build_menu_bar()
 
         self.page_scroll = QScrollArea()
         self.page_scroll.setObjectName("pageScroll")
@@ -476,16 +614,17 @@ class MainWindow(QMainWindow):
         self.root_layout = root
 
         root.addLayout(self._build_header())
+        root.addWidget(self._build_top_bar())
         self.workbench_card = self._build_workbench_card()
-        root.addWidget(self.workbench_card)
+        root.addWidget(self.workbench_card, 1)
         self.parameter_card = self._build_parameter_card()
-        root.addWidget(self.parameter_card)
+        root.addWidget(self.parameter_card, 1)
+        self.parameter_card.setVisible(False)
 
         self._load_saved_optimization()
         self._set_running(False)
         QTimer.singleShot(0, self._refresh_input_preview)
         QTimer.singleShot(0, self._show_initial_view)
-        QTimer.singleShot(0, self._fit_workbench_height)
         QTimer.singleShot(0, lambda: _apply_windows_dark_frame(self))
 
     def _show_initial_view(self) -> None:
@@ -493,26 +632,6 @@ class MainWindow(QMainWindow):
 
         self.start_button.setFocus()
         self.page_scroll.verticalScrollBar().setValue(0)
-
-    def _fit_workbench_height(self) -> None:
-        """以紧凑布局为下限，把额外高度留给日志和状态间距。"""
-
-        margins = self.root_layout.contentsMargins()
-        fixed_height = (
-            margins.top()
-            + margins.bottom()
-            + self.root_layout.itemAt(0).sizeHint().height()
-            + self.parameter_card.sizeHint().height()
-            + self.root_layout.spacing() * 2
-        )
-        target = self.page_scroll.viewport().height() - fixed_height
-        self.workbench_card.setFixedHeight(max(352, target))
-
-    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
-        super().resizeEvent(event)
-        if hasattr(self, "workbench_card") and hasattr(self, "parameter_card"):
-            QTimer.singleShot(0, self._fit_workbench_height)
-            QTimer.singleShot(60, self._fit_workbench_height)
 
     def _build_header(self) -> QHBoxLayout:
         layout = QHBoxLayout()
@@ -536,43 +655,205 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.status_badge, alignment=Qt.AlignmentFlag.AlignTop)
         return layout
 
+    def _build_menu_bar(self) -> None:
+        file_menu = self.menuBar().addMenu("文件(&F)")
+        choose_video = QAction("选择视频…", self)
+        choose_video.setShortcut("Ctrl+O")
+        choose_video.triggered.connect(self._choose_file)
+        file_menu.addAction(choose_video)
+        choose_folder = QAction("选择视频文件夹…", self)
+        choose_folder.setShortcut("Ctrl+Shift+O")
+        choose_folder.triggered.connect(self._choose_input_folder)
+        file_menu.addAction(choose_folder)
+        choose_output = QAction("选择输出文件夹…", self)
+        choose_output.triggered.connect(self._choose_output_folder)
+        file_menu.addAction(choose_output)
+        file_menu.addSeparator()
+        open_output = QAction("打开输出文件夹", self)
+        open_output.triggered.connect(self._open_output)
+        file_menu.addAction(open_output)
+        file_menu.addSeparator()
+        exit_action = QAction("退出", self)
+        exit_action.setShortcut("Alt+F4")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        edit_menu = self.menuBar().addMenu("编辑(&E)")
+        self.select_all_action = QAction("保留全部候选", self)
+        self.select_all_action.setShortcut("Ctrl+A")
+        self.select_all_action.triggered.connect(lambda: self._set_all_candidates(True))
+        edit_menu.addAction(self.select_all_action)
+        self.select_none_action = QAction("取消全部候选", self)
+        self.select_none_action.setShortcut("Ctrl+Shift+A")
+        self.select_none_action.triggered.connect(lambda: self._set_all_candidates(False))
+        edit_menu.addAction(self.select_none_action)
+
+        view_menu = self.menuBar().addMenu("视图(&V)")
+        self.parameters_action = QAction("显示常规参数", self)
+        self.parameters_action.setCheckable(True)
+        self.parameters_action.toggled.connect(self._set_parameter_panel_visible)
+        view_menu.addAction(self.parameters_action)
+
+        help_menu = self.menuBar().addMenu("帮助(&H)")
+        about_action = QAction("关于 Tennis Video Helper", self)
+        about_action.triggered.connect(self._show_about)
+        help_menu.addAction(about_action)
+
+    def _build_top_bar(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("topBar")
+        bar.setFixedHeight(54)
+        bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(8)
+
+        self.auto_button = QPushButton("自动精选")
+        self.auto_button.setObjectName("modeButton")
+        self.auto_button.setCheckable(True)
+        self.auto_button.setChecked(True)
+        self.auto_button.clicked.connect(
+            lambda _checked=False: self.parameters_action.setChecked(False)
+        )
+        self.settings_button = QPushButton("常规")
+        self.settings_button.setObjectName("modeButton")
+        self.settings_button.setCheckable(True)
+        self.settings_button.clicked.connect(
+            lambda checked=False: self.parameters_action.setChecked(checked)
+        )
+        layout.addWidget(self.auto_button)
+        layout.addWidget(self.settings_button)
+
+        default_input = Path.cwd() / "网球"
+        default_output = Path.cwd() / "精选输出"
+        layout.addWidget(QLabel("输入"))
+        self.input_edit = QLineEdit(
+            str(default_input) if default_input.exists() else ""
+        )
+        self.input_edit.setPlaceholderText("在“文件”菜单选择视频或文件夹")
+        self.input_edit.editingFinished.connect(self._refresh_input_preview)
+        layout.addWidget(self.input_edit, 2)
+        layout.addWidget(QLabel("输出"))
+        self.output_edit = QLineEdit(str(default_output))
+        self.output_edit.setPlaceholderText("在“文件”菜单选择输出目录")
+        layout.addWidget(self.output_edit, 2)
+        return bar
+
+    def _set_parameter_panel_visible(self, visible: bool) -> None:
+        self.workbench_card.setVisible(not visible)
+        self.parameter_card.setVisible(visible)
+        self.settings_button.setChecked(visible)
+        self.auto_button.setChecked(not visible)
+        self.page_scroll.verticalScrollBar().setValue(0)
+
+    def _show_about(self) -> None:
+        QMessageBox.about(
+            self,
+            "关于 Tennis Video Helper",
+            "Tennis Video Helper\n\n声音、人体骨架与球拍检测融合的网球回合筛选工具。",
+        )
+
     def _build_workbench_card(self) -> QFrame:
         card = QFrame()
         card.setObjectName("workbenchCard")
-        card.setMinimumHeight(352)
+        card.setMinimumHeight(500)
         layout = QHBoxLayout(card)
         layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(18)
+        layout.setSpacing(12)
 
-        preview_panel = QWidget()
-        preview_panel.setObjectName("previewColumn")
-        preview_panel.setMinimumWidth(240)
-        preview_panel.setMaximumWidth(280)
-        preview_column = QVBoxLayout(preview_panel)
-        preview_column.setContentsMargins(0, 0, 0, 0)
-        preview_column.setSpacing(8)
-        preview_header = QHBoxLayout()
-        preview_title = QLabel("当前处理视频")
-        preview_title.setObjectName("workbenchTitle")
-        self.video_count_label = QLabel("等待选择视频")
+        candidate_panel = QFrame()
+        candidate_panel.setObjectName("reviewPanel")
+        candidate_panel.setMinimumWidth(245)
+        candidate_panel.setMaximumWidth(310)
+        candidate_layout = QVBoxLayout(candidate_panel)
+        candidate_layout.setContentsMargins(12, 12, 12, 12)
+        candidate_header = QHBoxLayout()
+        candidate_title = QLabel("候选片段")
+        candidate_title.setObjectName("workbenchTitle")
+        self.video_count_label = QLabel("等待分析")
         self.video_count_label.setObjectName("mutedLabel")
+        candidate_header.addWidget(candidate_title)
+        candidate_header.addStretch()
+        candidate_header.addWidget(self.video_count_label)
+        candidate_layout.addLayout(candidate_header)
+        candidate_hint = QLabel("勾选要保留的片段，单击条目即可预览。")
+        candidate_hint.setObjectName("mutedLabel")
+        candidate_hint.setWordWrap(True)
+        candidate_layout.addWidget(candidate_hint)
+        self.candidate_list = QListWidget()
+        self.candidate_list.setObjectName("candidateList")
+        self.candidate_list.setAlternatingRowColors(False)
+        self.candidate_list.currentItemChanged.connect(self._candidate_changed)
+        self.candidate_list.itemChanged.connect(self._candidate_check_changed)
+        candidate_layout.addWidget(self.candidate_list, 1)
+        selection_row = QHBoxLayout()
+        select_all_button = QPushButton("全部保留")
+        select_all_button.clicked.connect(lambda: self._set_all_candidates(True))
+        select_none_button = QPushButton("全部取消")
+        select_none_button.clicked.connect(lambda: self._set_all_candidates(False))
+        selection_row.addWidget(select_all_button)
+        selection_row.addWidget(select_none_button)
+        candidate_layout.addLayout(selection_row)
+        self.selected_count_label = QLabel("已选 0/0 段")
+        self.selected_count_label.setObjectName("taskSummary")
+        candidate_layout.addWidget(self.selected_count_label)
+        layout.addWidget(candidate_panel)
+
+        preview_panel = QFrame()
+        preview_panel.setObjectName("previewPanel")
+        preview_column = QVBoxLayout(preview_panel)
+        preview_column.setContentsMargins(12, 12, 12, 10)
+        preview_column.setSpacing(7)
+        preview_header = QHBoxLayout()
+        preview_title = QLabel("片段预览与击球点")
+        preview_title.setObjectName("workbenchTitle")
+        self.current_video_label = QLabel("选择视频后可先查看画面")
+        self.current_video_label.setObjectName("currentVideo")
+        self.current_video_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         preview_header.addWidget(preview_title)
         preview_header.addStretch()
-        preview_header.addWidget(self.video_count_label)
+        preview_header.addWidget(self.current_video_label)
         preview_column.addLayout(preview_header)
 
+        self.preview_stack = QStackedWidget()
+        self.preview_stack.setObjectName("previewStack")
         self.preview = PreviewLabel()
-        preview_column.addWidget(self.preview, 1)
-        self.current_video_label = QLabel("尚未开始任务")
-        self.current_video_label.setObjectName("currentVideo")
-        self.current_video_label.setWordWrap(True)
-        preview_column.addWidget(self.current_video_label)
-        layout.addWidget(preview_panel)
+        self.preview_stack.addWidget(self.preview)
+        self.video_widget = QVideoWidget()
+        self.video_widget.setObjectName("videoWidget")
+        self.video_widget.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
+        self.media_player.setVideoOutput(self.video_widget)
+        self.preview_stack.addWidget(self.video_widget)
+        preview_column.addWidget(self.preview_stack, 1)
+
+        self.hit_timeline = HitTimeline()
+        self.hit_timeline.seekRequested.connect(self._seek_preview)
+        preview_column.addWidget(self.hit_timeline)
+        playback_row = QHBoxLayout()
+        self.previous_button = QPushButton("上一段")
+        self.previous_button.clicked.connect(self._previous_candidate)
+        self.play_button = QPushButton("播放")
+        self.play_button.setObjectName("playButton")
+        self.play_button.clicked.connect(self._toggle_preview_playback)
+        self.next_button = QPushButton("下一段")
+        self.next_button.clicked.connect(self._next_candidate)
+        self.preview_time_label = QLabel("00:00 / 00:00")
+        self.preview_time_label.setObjectName("metricValue")
+        self.hit_count_label = QLabel("击球点：0")
+        self.hit_count_label.setObjectName("hitCountLabel")
+        playback_row.addWidget(self.previous_button)
+        playback_row.addWidget(self.play_button)
+        playback_row.addWidget(self.next_button)
+        playback_row.addStretch()
+        playback_row.addWidget(self.hit_count_label)
+        playback_row.addWidget(self.preview_time_label)
+        preview_column.addLayout(playback_row)
+        layout.addWidget(preview_panel, 1)
 
         status_panel = QFrame()
         status_panel.setObjectName("statusPanel")
-        status_panel.setMinimumWidth(280)
-        status_panel.setMaximumWidth(350)
+        status_panel.setMinimumWidth(250)
+        status_panel.setMaximumWidth(300)
         status_layout = QVBoxLayout(status_panel)
         status_layout.setContentsMargins(18, 18, 18, 18)
         status_layout.setSpacing(6)
@@ -582,7 +863,7 @@ class MainWindow(QMainWindow):
         self.optimize_button.setObjectName("optimizeButton")
         self.optimize_button.setMinimumHeight(48)
         self.optimize_button.clicked.connect(self._start_optimization)
-        self.start_button = QPushButton("开始筛选")
+        self.start_button = QPushButton("分析候选")
         self.start_button.setObjectName("primaryButton")
         self.start_button.setMinimumHeight(48)
         self.start_button.clicked.connect(self._start_analysis)
@@ -600,8 +881,6 @@ class MainWindow(QMainWindow):
         self.acceleration_label.setProperty("mode", "pending")
         self.acceleration_label.setWordWrap(True)
         status_layout.addWidget(self.acceleration_label)
-        status_layout.addStretch(1)
-
         self.percent_label = QLabel("0%")
         self.percent_label.setObjectName("percentLabel")
         self.phase_label = QLabel("等待开始")
@@ -609,8 +888,6 @@ class MainWindow(QMainWindow):
         self.phase_label.setWordWrap(True)
         status_layout.addWidget(self.percent_label)
         status_layout.addWidget(self.phase_label)
-        status_layout.addStretch(1)
-
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setValue(0)
@@ -618,8 +895,6 @@ class MainWindow(QMainWindow):
         self.progress.setTextVisible(True)
         self.progress.setFixedHeight(22)
         status_layout.addWidget(self.progress)
-        status_layout.addStretch(1)
-
         timing_grid = QGridLayout()
         timing_grid.setHorizontalSpacing(18)
         timing_grid.setVerticalSpacing(4)
@@ -636,57 +911,18 @@ class MainWindow(QMainWindow):
         timing_grid.addWidget(self.elapsed_label, 1, 0)
         timing_grid.addWidget(self.eta_label, 1, 1)
         status_layout.addLayout(timing_grid)
-        status_layout.addStretch(1)
-
-        self.task_summary_label = QLabel("选择视频后即可开始 GPU 筛选")
+        self.task_summary_label = QLabel("从“文件”菜单选择视频，然后分析候选片段。")
         self.task_summary_label.setObjectName("taskSummary")
         self.task_summary_label.setWordWrap(True)
         status_layout.addWidget(self.task_summary_label)
+        status_layout.addStretch(1)
+        self.publish_button = QPushButton("导出勾选片段")
+        self.publish_button.setObjectName("primaryButton")
+        self.publish_button.setMinimumHeight(48)
+        self.publish_button.clicked.connect(self._publish_selected_candidates)
+        self.publish_button.setEnabled(False)
+        status_layout.addWidget(self.publish_button)
         layout.addWidget(status_panel)
-
-        utility_column = QVBoxLayout()
-        utility_column.setSpacing(10)
-        utility_column.addWidget(self._build_path_card())
-        utility_column.addWidget(self._build_log_card(), 1)
-        layout.addLayout(utility_column, 1)
-        return card
-
-    def _build_path_card(self) -> QFrame:
-        card = _card("输入与输出")
-        layout = card.layout()
-
-        default_input = Path.cwd() / "网球"
-        default_output = Path.cwd() / "精选输出"
-        self.input_edit = QLineEdit(
-            str(default_input if default_input.exists() else Path.cwd())
-        )
-        self.input_edit.setPlaceholderText("选择单个视频，或包含视频的文件夹")
-        self.input_edit.editingFinished.connect(self._refresh_input_preview)
-        self.output_edit = QLineEdit(str(default_output))
-        self.output_edit.setPlaceholderText("选择精选片段保存目录")
-
-        input_row = QHBoxLayout()
-        input_row.addWidget(_field_label("源视频 / 文件夹"))
-        input_row.addWidget(self.input_edit, 1)
-        choose_file = QPushButton("选择视频")
-        choose_file.clicked.connect(self._choose_file)
-        choose_folder = QPushButton("选择文件夹")
-        choose_folder.clicked.connect(self._choose_input_folder)
-        input_row.addWidget(choose_file)
-        input_row.addWidget(choose_folder)
-
-        output_row = QHBoxLayout()
-        output_row.addWidget(_field_label("输出文件夹"))
-        output_row.addWidget(self.output_edit, 1)
-        choose_output = QPushButton("选择目录")
-        choose_output.clicked.connect(self._choose_output_folder)
-        output_row.addWidget(choose_output)
-        self.open_output_button = QPushButton("打开输出")
-        self.open_output_button.clicked.connect(self._open_output)
-        output_row.addWidget(self.open_output_button)
-
-        layout.addLayout(input_row)
-        layout.addLayout(output_row)
         return card
 
     def _build_parameter_card(self) -> QFrame:
@@ -769,18 +1005,6 @@ class MainWindow(QMainWindow):
         layout.addLayout(grid)
         return card
 
-    def _build_log_card(self) -> QFrame:
-        card = _card("运行日志")
-        layout = card.layout()
-        self.log = QPlainTextEdit()
-        self.log.setReadOnly(True)
-        self.log.setPlaceholderText("任务开始后，这里会显示环境检查和每个视频的处理结果。")
-        self.log.setMaximumBlockCount(2000)
-        self.log.setMinimumHeight(90)
-        self.log.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        layout.addWidget(self.log)
-        return card
-
     def _form_values(self) -> AnalysisFormValues:
         input_path, output_path = parse_paths(
             self.input_edit.text(), self.output_edit.text()
@@ -821,6 +1045,17 @@ class MainWindow(QMainWindow):
         if not values.input_path.exists():
             QMessageBox.warning(self, "路径无效", "请选择存在的视频或文件夹。")
             return
+        if self._review_session is not None:
+            answer = QMessageBox.question(
+                self,
+                "放弃当前复核？",
+                "重新分析会删除尚未导出的候选预览。是否继续？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self._discard_current_review()
         if not values.export_original_quality:
             QMessageBox.information(
                 self,
@@ -839,21 +1074,6 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
 
-        self.log.clear()
-        self._append_log(f"开始处理：{values.input_path}")
-        self._append_log(f"输出目录：{values.output_path}")
-        self._append_log(
-            "同名结果：成功后覆盖旧结果"
-            if values.overwrite_existing_output
-            else "同名结果：保留旧结果并创建编号目录"
-        )
-        self._append_log(
-            "导出画质：保持源分辨率和原始帧率"
-            if values.export_original_quality
-            else "导出画质：默认最高 1080p，保持原始帧率"
-        )
-        self._append_log("正在检查 FFmpeg、NVENC 与 CUDA 环境……")
-
         environment = QProcessEnvironment.systemEnvironment()
         environment.insert("PYTHONUTF8", "1")
         environment.insert("PYTHONIOENCODING", "utf-8")
@@ -869,6 +1089,9 @@ class MainWindow(QMainWindow):
         self._process_output_buffer = ""
         self._process_output_decoder = MixedProcessOutputDecoder()
         self._acceleration_status = {}
+        self._review_manifest_path = None
+        self._last_worker_message = ""
+        self._clear_candidate_view()
         self._set_acceleration_label("pending", "GPU 加速：正在检查……")
         self.progress.setValue(0)
         self.progress.setFormat("0.0%")
@@ -890,9 +1113,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "路径无效", "请先选择用于基准测试的视频或文件夹。")
             return
 
-        self.log.clear()
-        self._append_log(f"开始检测并优化：{values.input_path}")
-        self._append_log("将测试可用推理后端和多个批量，首次构建 TensorRT 引擎可能需要数分钟。")
         environment = QProcessEnvironment.systemEnvironment()
         environment.insert("PYTHONUTF8", "1")
         environment.insert("PYTHONIOENCODING", "utf-8")
@@ -907,6 +1127,7 @@ class MainWindow(QMainWindow):
         self._progress_percent = 0.0
         self._process_output_buffer = ""
         self._process_output_decoder = MixedProcessOutputDecoder()
+        self._last_worker_message = ""
         self.progress.setValue(0)
         self.progress.setFormat("0.0%")
         self.percent_label.setText("0%")
@@ -924,7 +1145,7 @@ class MainWindow(QMainWindow):
         if self.process.state() == QProcess.ProcessState.NotRunning:
             return
         self._stopping = True
-        self._append_log("正在停止任务；当前未完成片段可能会保留为临时文件……")
+        self.task_summary_label.setText("正在停止后台任务，并清理未完成的候选文件……")
         process_id = int(self.process.processId())
         used_tree_kill = self._terminate_process_tree()
         if not used_tree_kill:
@@ -963,6 +1184,12 @@ class MainWindow(QMainWindow):
             self._handle_process_line(line.rstrip("\r"))
 
     def _handle_process_line(self, line: str) -> None:
+        review = parse_review_line(line)
+        if review is not None:
+            manifest = review.get("manifest")
+            if manifest:
+                self._review_manifest_path = Path(str(manifest))
+            return
         optimization = parse_optimization_line(line)
         if optimization is not None:
             self._apply_optimization_result(optimization)
@@ -1055,7 +1282,7 @@ class MainWindow(QMainWindow):
         if self._process_mode == "optimization":
             if self._stopping:
                 self.status_badge.setText("●  优化已停止")
-                self._append_log("本机性能优化已停止，旧配置保持不变。")
+                self.task_summary_label.setText("本机性能优化已停止，旧配置保持不变。")
             elif exit_code == 0:
                 self.status_badge.setText("●  优化完成")
                 self._progress_percent = 100.0
@@ -1064,34 +1291,62 @@ class MainWindow(QMainWindow):
                 self.percent_label.setText("100%")
                 self.phase_label.setText("本机性能优化完成")
                 self.eta_label.setText("已完成")
-                self._append_log("最快且通过一致性检查的配置已自动应用。")
+                self.task_summary_label.setText("最快且通过一致性检查的配置已自动应用。")
             else:
                 self.status_badge.setText("●  优化失败")
-                self._append_log(f"本机性能优化异常结束，退出代码：{exit_code}")
+                self.task_summary_label.setText(
+                    self._last_worker_message or f"本机性能优化异常结束，退出代码：{exit_code}"
+                )
             self._process_mode = "analysis"
             return
         if self._stopping:
             self.status_badge.setText("●  已停止")
-            self._append_log("任务已停止；已有成功结果不会被覆盖。")
-        elif exit_code == 0:
-            self.status_badge.setText("●  处理完成")
+            self.task_summary_label.setText("任务已停止；旧结果没有被覆盖。")
+            if self._review_manifest_path and self._review_manifest_path.exists():
+                discard_review_session(self._review_manifest_path.parent)
+        elif self._review_manifest_path is not None:
+            try:
+                session = load_review_session(self._review_manifest_path)
+                self._set_review_session(session)
+            except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                self.status_badge.setText("●  候选清单损坏")
+                self.phase_label.setText("无法载入候选片段")
+                self.task_summary_label.setText(str(exc))
+                return
             self._progress_percent = 100.0
             self.progress.setValue(1000)
             self.progress.setFormat("100.0%")
             self.percent_label.setText("100%")
-            self.phase_label.setText("全部任务完成")
+            candidate_count = len(session.clips)
+            self.status_badge.setText("●  等待人工确认")
+            self.phase_label.setText(
+                f"已生成 {candidate_count} 个候选片段"
+                if candidate_count
+                else "没有找到满足条件的候选片段"
+            )
             self.eta_label.setText("已完成")
-            self._append_log("全部任务完成，可以打开输出目录查看精选片段。")
+            suffix = "；部分源视频处理失败" if exit_code != 0 else ""
+            self.task_summary_label.setText(
+                f"逐段播放并检查击球点，取消误判后再导出{suffix}。"
+                if candidate_count
+                else f"可以调整识别参数后重新分析{suffix}。"
+            )
+        elif exit_code == 0:
+            self.status_badge.setText("●  未生成候选")
+            self.phase_label.setText("没有找到候选片段")
+            self.task_summary_label.setText("可以调低最短回合或灵敏度后重新分析。")
         else:
             self.status_badge.setText("●  处理失败")
-            self._append_log(f"任务异常结束，退出代码：{exit_code}")
+            self.task_summary_label.setText(
+                self._last_worker_message or f"任务异常结束，退出代码：{exit_code}"
+            )
 
     def _process_error(self, error) -> None:
         if error == QProcess.ProcessError.FailedToStart:
             self.elapsed_timer.stop()
             self._set_running(False)
             self.status_badge.setText("●  启动失败")
-            self._append_log(f"无法启动后台任务：{self.process.errorString()}")
+            self.task_summary_label.setText(f"无法启动后台任务：{self.process.errorString()}")
 
     def _set_running(self, running: bool) -> None:
         self.optimize_button.setEnabled(not running)
@@ -1099,6 +1354,10 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(running)
         self.input_edit.setEnabled(not running)
         self.output_edit.setEnabled(not running)
+        has_candidates = self._review_session is not None and bool(self._review_session.clips)
+        self.publish_button.setEnabled(not running and has_candidates)
+        self.select_all_action.setEnabled(not running and has_candidates)
+        self.select_none_action.setEnabled(not running and has_candidates)
         if running:
             self.status_badge.setText("●  正在处理")
             self.progress.setRange(0, 1000)
@@ -1106,6 +1365,248 @@ class MainWindow(QMainWindow):
             self.progress.setRange(0, 1000)
             if not self.status_badge.text():
                 self.status_badge.setText("●  等待任务")
+
+    def _set_review_session(self, session: ReviewSession) -> None:
+        self._review_session = session
+        self._review_candidates = {
+            clip.id: (video, clip)
+            for video in session.videos
+            for clip in video.clips
+        }
+        self._loading_candidates = True
+        self.candidate_list.clear()
+        for video in session.videos:
+            for clip in video.clips:
+                item = QListWidgetItem(
+                    f"片段 {clip.index:03d} · {clip.duration:.1f} 秒\n"
+                    f"{video.source.name} · {len(clip.hits)} 个击球点"
+                )
+                item.setData(Qt.ItemDataRole.UserRole, clip.id)
+                item.setFlags(
+                    item.flags()
+                    | Qt.ItemFlag.ItemIsUserCheckable
+                    | Qt.ItemFlag.ItemIsSelectable
+                    | Qt.ItemFlag.ItemIsEnabled
+                )
+                item.setCheckState(Qt.CheckState.Checked)
+                item.setToolTip(
+                    f"源视频：{video.source}\n"
+                    f"原始区间：{clip.segment.output_start:.2f}–{clip.segment.output_end:.2f} 秒"
+                )
+                self.candidate_list.addItem(item)
+        self._loading_candidates = False
+        self.video_count_label.setText(f"{len(session.clips)} 段")
+        self._update_selected_count()
+        self.publish_button.setEnabled(bool(session.clips))
+        self.select_all_action.setEnabled(bool(session.clips))
+        self.select_none_action.setEnabled(bool(session.clips))
+        if session.clips:
+            self.candidate_list.setCurrentRow(0)
+        else:
+            self._clear_preview_only("没有找到候选片段")
+
+    def _candidate_changed(
+        self,
+        current: QListWidgetItem | None,
+        _previous: QListWidgetItem | None,
+    ) -> None:
+        if current is None:
+            return
+        candidate_id = str(current.data(Qt.ItemDataRole.UserRole))
+        pair = self._review_candidates.get(candidate_id)
+        if pair is None:
+            return
+        video, clip = pair
+        self._current_candidate_id = candidate_id
+        self.media_player.stop()
+        self.media_player.setSource(QUrl.fromLocalFile(str(clip.path)))
+        self.preview_stack.setCurrentWidget(self.video_widget)
+        self.current_video_label.setText(
+            f"{video.source.name} · 片段 {clip.index:03d}"
+        )
+        duration_ms = round(clip.duration * 1000)
+        self.hit_timeline.set_hits(
+            duration_ms,
+            [round(hit.timestamp * 1000) for hit in clip.hits],
+        )
+        self.hit_count_label.setText(f"击球点：{len(clip.hits)}")
+        self.preview_time_label.setText(
+            f"00:00 / {self._preview_clock(duration_ms)}"
+        )
+        self.play_button.setText("播放")
+        self._update_navigation_buttons()
+
+    def _candidate_check_changed(self, _item: QListWidgetItem) -> None:
+        if not self._loading_candidates:
+            self._update_selected_count()
+
+    def _update_selected_count(self) -> None:
+        total = self.candidate_list.count()
+        selected = sum(
+            self.candidate_list.item(index).checkState() == Qt.CheckState.Checked
+            for index in range(total)
+        )
+        self.selected_count_label.setText(f"已选 {selected}/{total} 段")
+        self.publish_button.setEnabled(
+            self.process.state() == QProcess.ProcessState.NotRunning
+            and self._review_session is not None
+            and selected > 0
+        )
+
+    def _set_all_candidates(self, selected: bool) -> None:
+        self._loading_candidates = True
+        state = Qt.CheckState.Checked if selected else Qt.CheckState.Unchecked
+        for index in range(self.candidate_list.count()):
+            self.candidate_list.item(index).setCheckState(state)
+        self._loading_candidates = False
+        self._update_selected_count()
+
+    def _selected_candidate_ids(self) -> list[str]:
+        return [
+            str(item.data(Qt.ItemDataRole.UserRole))
+            for index in range(self.candidate_list.count())
+            if (item := self.candidate_list.item(index)).checkState()
+            == Qt.CheckState.Checked
+        ]
+
+    def _publish_selected_candidates(self) -> None:
+        if self._review_session is None:
+            return
+        selected_ids = self._selected_candidate_ids()
+        if not selected_ids:
+            QMessageBox.warning(self, "没有勾选片段", "请至少勾选一个需要导出的候选片段。")
+            return
+        self.media_player.stop()
+        self.media_player.setSource(QUrl())
+        QApplication.processEvents()
+        self.publish_button.setEnabled(False)
+        self.status_badge.setText("●  正在发布结果")
+        self.task_summary_label.setText("正在删除未勾选候选并发布正式结果……")
+        try:
+            published = publish_review_session(self._review_session, selected_ids)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.status_badge.setText("●  导出失败")
+            self.task_summary_label.setText(str(exc))
+            self.publish_button.setEnabled(True)
+            QMessageBox.critical(self, "导出失败", str(exc))
+            return
+
+        output_text = "\n".join(str(path) for path in published.output_dirs)
+        self._review_session = None
+        self._review_manifest_path = None
+        self._review_candidates.clear()
+        self._clear_candidate_view()
+        self.status_badge.setText("●  导出完成")
+        self.phase_label.setText(f"已导出 {len(published.clip_paths)} 个片段")
+        self.task_summary_label.setText("人工确认后的片段已保存到输出目录。")
+        QMessageBox.information(
+            self,
+            "导出完成",
+            f"已导出 {len(published.clip_paths)} 个片段。\n\n{output_text}",
+        )
+
+    def _previous_candidate(self) -> None:
+        row = self.candidate_list.currentRow()
+        if row > 0:
+            self.candidate_list.setCurrentRow(row - 1)
+
+    def _next_candidate(self) -> None:
+        row = self.candidate_list.currentRow()
+        if 0 <= row < self.candidate_list.count() - 1:
+            self.candidate_list.setCurrentRow(row + 1)
+
+    def _update_navigation_buttons(self) -> None:
+        row = self.candidate_list.currentRow()
+        self.previous_button.setEnabled(row > 0)
+        self.next_button.setEnabled(0 <= row < self.candidate_list.count() - 1)
+        self.play_button.setEnabled(row >= 0)
+
+    def _toggle_preview_playback(self) -> None:
+        if self._current_candidate_id is None:
+            return
+        if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self.media_player.pause()
+        else:
+            self.media_player.play()
+
+    def _seek_preview(self, position_ms: int) -> None:
+        if self._current_candidate_id is not None:
+            self.media_player.setPosition(position_ms)
+
+    def _preview_position_changed(self, position_ms: int) -> None:
+        self.hit_timeline.set_position(position_ms)
+        duration_ms = max(self.media_player.duration(), self.hit_timeline._duration_ms)
+        self.preview_time_label.setText(
+            f"{self._preview_clock(position_ms)} / {self._preview_clock(duration_ms)}"
+        )
+
+    def _preview_duration_changed(self, duration_ms: int) -> None:
+        if duration_ms > 0:
+            self.hit_timeline.set_duration(duration_ms)
+
+    def _preview_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
+        self.play_button.setText(
+            "暂停" if state == QMediaPlayer.PlaybackState.PlayingState else "播放"
+        )
+
+    def _preview_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
+        if status == QMediaPlayer.MediaStatus.LoadedMedia:
+            self.media_player.pause()
+            self.media_player.setPosition(0)
+        elif status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self.media_player.pause()
+            self.media_player.setPosition(0)
+
+    def _preview_error(self, _error, error_text: str) -> None:
+        if not error_text or self._current_candidate_id is None:
+            return
+        pair = self._review_candidates.get(self._current_candidate_id)
+        if pair is not None:
+            _video, clip = pair
+            self.preview.set_source_pixmap(_video_thumbnail(clip.path))
+            self.preview_stack.setCurrentWidget(self.preview)
+        self.task_summary_label.setText(f"系统播放器无法播放该片段：{error_text}")
+
+    @staticmethod
+    def _preview_clock(milliseconds: int) -> str:
+        total_seconds = max(0, round(milliseconds / 1000))
+        minutes, seconds = divmod(total_seconds, 60)
+        return f"{minutes:02d}:{seconds:02d}"
+
+    def _clear_preview_only(self, message: str) -> None:
+        self.media_player.stop()
+        self.media_player.setSource(QUrl())
+        self._current_candidate_id = None
+        self.preview.set_source_pixmap(None)
+        self.preview.setText(message)
+        self.preview_stack.setCurrentWidget(self.preview)
+        self.hit_timeline.set_hits(0, [])
+        self.hit_count_label.setText("击球点：0")
+        self.preview_time_label.setText("00:00 / 00:00")
+        self.play_button.setText("播放")
+        self.play_button.setEnabled(False)
+
+    def _clear_candidate_view(self) -> None:
+        self._loading_candidates = True
+        self.candidate_list.clear()
+        self._loading_candidates = False
+        self._review_candidates.clear()
+        self.video_count_label.setText("等待分析")
+        self.selected_count_label.setText("已选 0/0 段")
+        self.publish_button.setEnabled(False)
+        self.select_all_action.setEnabled(False)
+        self.select_none_action.setEnabled(False)
+        self._clear_preview_only("分析完成后，可在这里逐段播放候选视频")
+        self._update_navigation_buttons()
+
+    def _discard_current_review(self) -> None:
+        self.media_player.stop()
+        self.media_player.setSource(QUrl())
+        if self._review_session is not None:
+            discard_review_session(self._review_session)
+        self._review_session = None
+        self._review_manifest_path = None
+        self._clear_candidate_view()
 
     def _load_saved_optimization(self) -> None:
         profile = load_profile()
@@ -1217,7 +1718,8 @@ class MainWindow(QMainWindow):
             self.eta_label.setText(format_clock(remaining))
 
     def _append_log(self, message: str) -> None:
-        self.log.appendPlainText(message)
+        self._last_worker_message = message
+        self.task_summary_label.setToolTip(message)
 
     def _choose_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -1279,12 +1781,29 @@ class MainWindow(QMainWindow):
         self.current_video_label.setText(resolved.name)
         pixmap = _video_thumbnail(resolved)
         self.preview.set_source_pixmap(pixmap)
+        self.preview_stack.setCurrentWidget(self.preview)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API 命名
+        if self._review_session is not None:
+            answer = QMessageBox.question(
+                self,
+                "退出并删除候选预览？",
+                "当前还有尚未导出的候选片段。退出后会清理这些临时文件，是否继续？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+        self.media_player.stop()
+        self.media_player.setSource(QUrl())
         if self.process.state() != QProcess.ProcessState.NotRunning:
             self._terminate_process_tree()
             if not self.process.waitForFinished(1500):
                 self.process.kill()
+        if self._review_session is not None:
+            discard_review_session(self._review_session)
+            self._review_session = None
         event.accept()
 
 
@@ -1469,6 +1988,16 @@ def main() -> None:
 
 
 STYLE_SHEET = """
+QMainWindow, QMenuBar, QMenu {
+    background: #0a0b0d;
+    color: #f4f5f6;
+    font-family: "Segoe UI", "Microsoft YaHei UI";
+}
+QMenuBar { border-bottom: 1px solid #25282d; padding: 2px 8px; }
+QMenuBar::item { padding: 6px 10px; background: transparent; }
+QMenuBar::item:selected, QMenu::item:selected { background: #2b3035; }
+QMenu { border: 1px solid #34383e; padding: 5px; }
+QMenu::item { padding: 7px 28px 7px 12px; }
 QWidget#root {
     background: #0a0b0d;
     color: #f4f5f6;
@@ -1497,6 +2026,45 @@ QFrame#card, QFrame#workbenchCard {
     border: 1px solid #2a2d32;
     border-radius: 15px;
 }
+QFrame#topBar {
+    background: #141619;
+    border: 1px solid #2a2d32;
+    border-radius: 11px;
+}
+QFrame#reviewPanel, QFrame#previewPanel {
+    background: #17191c;
+    border: 1px solid #2c3035;
+    border-radius: 12px;
+}
+QListWidget#candidateList {
+    color: #eef1f3;
+    background: #0d0f11;
+    border: 1px solid #30343a;
+    border-radius: 9px;
+    padding: 4px;
+    outline: none;
+}
+QListWidget#candidateList::item {
+    border-radius: 7px;
+    padding: 9px 7px;
+    margin: 2px;
+}
+QListWidget#candidateList::item:selected {
+    color: #f8fff0;
+    background: #29361d;
+    border: 1px solid #618a31;
+}
+QVideoWidget#videoWidget, QStackedWidget#previewStack {
+    background: #050607;
+    border: 1px solid #30343a;
+    border-radius: 10px;
+}
+QWidget#hitTimeline {
+    background: #101215;
+    border: 1px solid #292d32;
+    border-radius: 10px;
+}
+QLabel#hitCountLabel { color: #b9f45a; font-weight: 700; }
 QFrame#workbenchCard {
     background: #111316;
     border-color: #30343a;
@@ -1552,7 +2120,7 @@ QLabel#metricValue {
 QLabel#taskSummary { color: #8f959d; font-size: 12px; }
 QLabel#sectionTitle { color: #f3f4f5; font-size: 14px; font-weight: 700; }
 QLabel#fieldLabel { color: #aeb2b8; font-weight: 600; }
-QLineEdit, QPlainTextEdit, QDoubleSpinBox, QSpinBox, QComboBox {
+QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {
     color: #f1f2f3;
     background: #101215;
     border: 1px solid #30343a;
@@ -1570,7 +2138,7 @@ QDoubleSpinBox QLineEdit, QSpinBox QLineEdit {
     border-radius: 0;
     padding: 0;
 }
-QLineEdit:focus, QPlainTextEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {
     border: 1px solid #94c84a;
 }
 QSpinBox::up-button, QDoubleSpinBox::up-button {
@@ -1613,11 +2181,6 @@ QComboBox::drop-down {
     width: 28px;
     border-left: 1px solid #30343a;
 }
-QPlainTextEdit {
-    font-family: "Cascadia Mono", "Consolas";
-    font-size: 12px;
-    padding: 12px;
-}
 QPushButton {
     color: #e7e9ec;
     background: #292c31;
@@ -1638,6 +2201,11 @@ QPushButton#primaryButton {
 }
 QPushButton#primaryButton:hover { background: #c8ff73; }
 QPushButton#dangerButton { color: #ffb7b7; background: #352426; border-color: #573437; }
+QPushButton#modeButton:checked {
+    color: #11150c;
+    background: #b9f45a;
+    border-color: #c8ff73;
+}
 QFrame#parameterTile {
     background: #121417;
     border: 1px solid #292c31;

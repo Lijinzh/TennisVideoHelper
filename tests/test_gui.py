@@ -11,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from tennis_video_helper.gui import (
     AnalysisFormValues,
+    HitTimeline,
     ParameterTile,
     MainWindow,
     MixedProcessOutputDecoder,
@@ -25,10 +26,18 @@ from tennis_video_helper.gui import (
     parse_acceleration_line,
     parse_optimization_line,
     parse_progress_line,
+    parse_review_line,
     process_invocation,
     process_ids_match,
 )
 import tennis_video_helper.gui as gui_module
+from tennis_video_helper.models import MediaInfo, RallySegment
+from tennis_video_helper.review import (
+    ReviewClipCandidate,
+    ReviewHit,
+    ReviewSession,
+    ReviewVideoCandidate,
+)
 
 
 def test_build_analyze_arguments_includes_paths_and_parameters() -> None:
@@ -56,6 +65,7 @@ def test_build_analyze_arguments_includes_paths_and_parameters() -> None:
     assert arguments[arguments.index("--precision") + 1] == "fp16"
     assert arguments[arguments.index("--batch-size") + 1] == "16"
     assert "--progress-json" in arguments
+    assert "--prepare-review" in arguments
     assert "--allow-cpu" in arguments
     assert "--1080p-output" in arguments
     assert "--overwrite-existing" in arguments
@@ -236,7 +246,7 @@ def test_initial_view_focuses_primary_action_and_stays_at_top() -> None:
     app.processEvents()
 
 
-def test_portrait_workspace_fits_primary_controls_without_scrolling() -> None:
+def test_review_workspace_fits_primary_controls_without_scrolling() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
     window.resize(1100, 760)
@@ -252,16 +262,20 @@ def test_portrait_workspace_fits_primary_controls_without_scrolling() -> None:
         central, window.input_edit.rect().topLeft()
     )
 
-    assert window.preview.width() < window.preview.height()
+    candidate_position = window.candidate_list.mapTo(
+        central, window.candidate_list.rect().topLeft()
+    )
+    assert window.preview.width() > window.preview.height()
+    assert candidate_position.x() < preview_position.x()
     assert start_position.x() > preview_position.x() + window.preview.width()
-    assert input_position.x() > start_position.x()
+    assert input_position.y() < preview_position.y()
     assert window.page_scroll.verticalScrollBar().maximum() == 0
 
     window.close()
     app.processEvents()
 
 
-def test_reference_layout_balances_status_and_fills_log_card() -> None:
+def test_reference_layout_uses_space_for_large_preview_without_log_panel() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
     window.resize(1100, 760)
@@ -271,40 +285,21 @@ def test_reference_layout_balances_status_and_fills_log_card() -> None:
 
     status_panel = window.start_button.parentWidget()
     workbench = status_panel.parentWidget()
-    log_card = window.log.parentWidget()
-    main_gaps = [
-        window.percent_label.geometry().top()
-        - window.acceleration_label.geometry().bottom()
-        - 1,
-        window.progress.geometry().top() - window.phase_label.geometry().bottom() - 1,
-        window.task_summary_label.geometry().top()
-        - max(
-            window.elapsed_label.geometry().bottom(),
-            window.eta_label.geometry().bottom(),
-        )
-        - 1,
-    ]
-
     compact_workbench_height = workbench.height()
-    compact_log_height = window.log.height()
-    assert compact_workbench_height >= 352
-    assert workbench.geometry().top() <= 100
-    assert max(main_gaps) - min(main_gaps) <= 2
-    assert window.log.height() >= 115
-    assert window.log.geometry().top() <= 45
-    assert log_card.height() - window.log.geometry().bottom() - 1 <= 20
+    compact_preview_size = window.preview.size()
+    assert compact_workbench_height >= 500
+    assert not hasattr(window, "log")
+    assert window.preview.width() >= 420
+    assert window.preview.height() >= 300
+    assert window.candidate_list.height() >= 300
 
     window.resize(1440, 920)
     QTest.qWait(80)
     app.processEvents()
 
     assert window.workbench_card.height() > compact_workbench_height
-    assert window.log.height() > compact_log_height
-    parameter_bottom = window.parameter_card.mapTo(
-        window.page_scroll.viewport(),
-        window.parameter_card.rect().bottomLeft(),
-    ).y()
-    assert window.page_scroll.viewport().height() - parameter_bottom <= 12
+    assert window.preview.width() >= compact_preview_size.width()
+    assert window.preview.height() > compact_preview_size.height()
     assert window.page_scroll.verticalScrollBar().maximum() == 0
 
     window.close()
@@ -316,6 +311,7 @@ def test_parameter_tiles_and_large_buttons_do_not_overlap() -> None:
     window = MainWindow()
     window.resize(1100, 760)
     window.show()
+    window.parameters_action.setChecked(True)
     app.processEvents()
 
     tiles = window.findChildren(ParameterTile)
@@ -332,6 +328,123 @@ def test_parameter_tiles_and_large_buttons_do_not_overlap() -> None:
     app.processEvents()
     assert window.min_rally.value() == pytest.approx(original_value + 0.5)
 
+    window.close()
+    app.processEvents()
+
+
+def test_standard_menu_contains_input_output_and_parameter_actions() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    menu_titles = [action.text() for action in window.menuBar().actions()]
+    assert any("文件" in title for title in menu_titles)
+    assert any("编辑" in title for title in menu_titles)
+    assert any("视图" in title for title in menu_titles)
+    assert any("帮助" in title for title in menu_titles)
+    assert window.parameter_card.isHidden() is True
+
+    QTest.mouseClick(window.settings_button, Qt.MouseButton.LeftButton)
+    assert window.parameter_card.isVisible() is True
+    assert window.settings_button.isChecked() is True
+    assert window.workbench_card.isHidden() is True
+
+    window.close()
+    app.processEvents()
+
+
+def test_hit_timeline_emits_seek_position_and_tracks_hits() -> None:
+    app = QApplication.instance() or QApplication([])
+    timeline = HitTimeline()
+    timeline.resize(500, 54)
+    timeline.set_hits(10_000, [2_000, 5_000, 8_000])
+    timeline.set_position(5_000)
+    positions: list[int] = []
+    timeline.seekRequested.connect(positions.append)
+    timeline.show()
+    app.processEvents()
+
+    QTest.mouseClick(
+        timeline,
+        Qt.MouseButton.LeftButton,
+        pos=timeline.rect().center(),
+    )
+
+    assert timeline._hit_positions_ms == (2_000, 5_000, 8_000)
+    assert positions and positions[-1] == pytest.approx(5_000, abs=100)
+    timeline.close()
+
+
+def test_review_protocol_line_is_parsed() -> None:
+    payload = parse_review_line(
+        'TVH_REVIEW {"manifest":"D:/output/.review/review-session.json",'
+        '"candidate_count":3}'
+    )
+
+    assert payload is not None
+    assert payload["candidate_count"] == 3
+    assert parse_review_line("普通日志") is None
+
+
+def test_review_session_populates_selectable_candidates_and_hit_timeline(
+    tmp_path: Path,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    source = tmp_path / "source.mp4"
+    clip_path = tmp_path / "review" / "clips" / "rally_001.mp4"
+    clip_path.parent.mkdir(parents=True)
+    clip_path.write_bytes(b"preview")
+    media = MediaInfo(
+        path=source,
+        duration=30.0,
+        width=1920,
+        height=1080,
+        fps=30.0,
+        video_codec="h264",
+        pixel_format="yuv420p",
+        audio_codec="aac",
+        audio_sample_rate=48_000,
+        audio_channels=2,
+        rotation=0,
+        color_transfer=None,
+        is_hdr10=False,
+        is_dolby_vision=False,
+    )
+    segment = RallySegment(2, 12, 0, 15, 10, 0.9, 3)
+    clip = ReviewClipCandidate(
+        id="1:1",
+        index=1,
+        path=clip_path,
+        segment=segment,
+        hits=(
+            ReviewHit(2.0, 2.0, 0.9, "击球一"),
+            ReviewHit(8.0, 8.0, 0.8, "击球二"),
+        ),
+    )
+    video = ReviewVideoCandidate(
+        source=source,
+        output_dir=tmp_path / "output" / "source",
+        staging_dir=clip_path.parents[1],
+        media=media,
+        clips=(clip,),
+        audio_events=(),
+        visual_events=(),
+        fused_events=(),
+    )
+    window = MainWindow()
+    window._set_review_session(
+        ReviewSession(tmp_path / "review", True, (video,))
+    )
+    app.processEvents()
+
+    assert window.candidate_list.count() == 1
+    assert window.candidate_list.item(0).checkState() == Qt.CheckState.Checked
+    assert window.selected_count_label.text() == "已选 1/1 段"
+    assert window.hit_timeline._hit_positions_ms == (2_000, 8_000)
+    assert window.publish_button.isEnabled() is True
+
+    window._review_session = None
     window.close()
     app.processEvents()
 
