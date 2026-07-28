@@ -1696,11 +1696,14 @@ class MainWindow(QMainWindow):
         )
 
     def _preview_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
-        if status == QMediaPlayer.MediaStatus.LoadedMedia:
-            self.media_player.pause()
-            self.media_player.setPosition(0)
-        elif status == QMediaPlayer.MediaStatus.EndOfMedia:
-            self.media_player.pause()
+        # Windows 的媒体后端可能在 pause() 时同步再次发出 LoadedMedia。
+        # 不要在 LoadedMedia 回调中反向操作播放器，否则候选片段加载后会
+        # 无限递归并以 0xC00000FD（栈溢出）直接终止整个 GUI。
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            QTimer.singleShot(0, self._rewind_finished_preview)
+
+    def _rewind_finished_preview(self) -> None:
+        if self._current_candidate_id is not None:
             self.media_player.setPosition(0)
 
     def _preview_error(self, _error, error_text: str) -> None:

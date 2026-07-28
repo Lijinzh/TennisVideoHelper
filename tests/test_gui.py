@@ -533,6 +533,31 @@ def test_review_session_populates_selectable_candidates_and_hit_timeline(
     app.processEvents()
 
 
+def test_loaded_candidate_media_does_not_reenter_player_controls() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+
+    class FakePlayer:
+        def __init__(self) -> None:
+            self.positions: list[int] = []
+
+        def setPosition(self, position: int) -> None:  # noqa: N802 - Qt API
+            self.positions.append(position)
+
+    fake_player = FakePlayer()
+    original_player = window.media_player
+    window.media_player = fake_player
+
+    window._preview_media_status_changed(
+        gui_module.QMediaPlayer.MediaStatus.LoadedMedia
+    )
+
+    assert fake_player.positions == []
+    window.media_player = original_player
+    window.close()
+    app.processEvents()
+
+
 def test_progress_payload_updates_visible_status() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
