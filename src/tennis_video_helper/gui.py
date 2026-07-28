@@ -188,6 +188,43 @@ def _number(value: float) -> str:
     return f"{value:g}"
 
 
+def format_analysis_scope(limit_duration: float | None) -> str:
+    """Return a user-facing description of the actual video range being scanned."""
+
+    if limit_duration is None:
+        return "分析范围：完整视频"
+    return (
+        f"分析范围：仅前 {_number(limit_duration / 60)} 分钟"
+        "（其余内容不会检查）"
+    )
+
+
+def empty_candidate_guidance(limit_duration: float | None) -> str:
+    """Explain an empty result without hiding an active duration limit."""
+
+    if limit_duration is None:
+        return "完整视频中没有找到候选；可以调低最短回合或灵敏度后重新分析。"
+    return (
+        f"本次只分析了前 {_number(limit_duration / 60)} 分钟；"
+        "此范围内没有候选。关闭“仅分析前”后可检查完整视频。"
+    )
+
+
+def incompatible_analysis_scope_message(
+    limit_duration: float | None,
+    min_rally_duration: float,
+) -> str | None:
+    """Explain when the selected scan range cannot contain a valid rally."""
+
+    if limit_duration is None or limit_duration >= min_rally_duration:
+        return None
+    return (
+        f"当前只分析前 {_number(limit_duration)} 秒，但最短回合设置为 "
+        f"{_number(min_rally_duration)} 秒，因此必然无法生成候选片段。"
+        "请关闭“仅分析前”，或增大分析范围。"
+    )
+
+
 def decode_utf8_chunks(chunks: list[bytes]) -> str:
     """Decode arbitrarily split UTF-8 chunks without corrupting multibyte text."""
 
@@ -572,6 +609,7 @@ class MainWindow(QMainWindow):
         self._optimization_profile: OptimizationProfile | None = None
         self._review_manifest_path: Path | None = None
         self._review_session: ReviewSession | None = None
+        self._active_analysis_limit_duration: float | None = None
         self._review_candidates: dict[
             str, tuple[ReviewVideoCandidate, ReviewClipCandidate]
         ] = {}
@@ -641,9 +679,9 @@ class MainWindow(QMainWindow):
 
         eyebrow = QLabel("AI TENNIS WORKFLOW")
         eyebrow.setObjectName("eyebrow")
-        title = QLabel("长回合自动精选")
+        title = QLabel("网球回合分析与复核")
         title.setObjectName("heroTitle")
-        subtitle = QLabel("声音瞬态 × 人体动作 × NVIDIA GPU 加速")
+        subtitle = QLabel("自动识别候选 → 逐段预览 → 勾选导出")
         subtitle.setObjectName("heroSubtitle")
         text.addWidget(eyebrow)
         text.addWidget(title)
@@ -709,11 +747,11 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(8)
 
-        self.auto_button = QPushButton("自动精选")
+        self.auto_button = QPushButton("分析与复核")
         self.auto_button.setObjectName("modeButton")
         self.auto_button.setCheckable(True)
         self.auto_button.setChecked(True)
-        self.auto_button.setToolTip("分析视频、预览候选片段并选择要导出的内容")
+        self.auto_button.setToolTip("自动生成候选片段，再由你逐段确认并导出")
         self.auto_button.clicked.connect(
             lambda _checked=False: self.parameters_action.setChecked(False)
         )
@@ -888,7 +926,7 @@ class MainWindow(QMainWindow):
         status_layout.setContentsMargins(18, 18, 18, 18)
         status_layout.setSpacing(6)
 
-        self.start_button = QPushButton("分析候选")
+        self.start_button = QPushButton("开始分析")
         self.start_button.setObjectName("primaryButton")
         self.start_button.setMinimumHeight(48)
         self.start_button.setMinimumWidth(120)
@@ -907,6 +945,12 @@ class MainWindow(QMainWindow):
         secondary_button_row.addWidget(self.optimize_button)
         secondary_button_row.addWidget(self.stop_button)
         status_layout.addLayout(secondary_button_row)
+
+        self.analysis_scope_label = QLabel(format_analysis_scope(None))
+        self.analysis_scope_label.setObjectName("analysisScope")
+        self.analysis_scope_label.setProperty("mode", "complete")
+        self.analysis_scope_label.setWordWrap(True)
+        status_layout.addWidget(self.analysis_scope_label)
 
         self.acceleration_label = QLabel("GPU 加速：等待任务检查")
         self.acceleration_label.setObjectName("accelerationStatus")
@@ -943,7 +987,9 @@ class MainWindow(QMainWindow):
         timing_grid.addWidget(self.elapsed_label, 1, 0)
         timing_grid.addWidget(self.eta_label, 1, 1)
         status_layout.addLayout(timing_grid)
-        self.task_summary_label = QLabel("从“文件”菜单选择视频，然后分析候选片段。")
+        self.task_summary_label = QLabel(
+            "选择视频后点击“开始分析”，完成后逐段复核并勾选导出。"
+        )
         self.task_summary_label.setObjectName("taskSummary")
         self.task_summary_label.setWordWrap(True)
         status_layout.addWidget(self.task_summary_label)
@@ -1009,6 +1055,8 @@ class MainWindow(QMainWindow):
         self.limit_minutes = _double_spin(5.0, 0.1, 180.0, " 分钟")
         self.limit_minutes.setEnabled(False)
         self.limit_check.toggled.connect(self.limit_minutes.setEnabled)
+        self.limit_check.toggled.connect(self._update_analysis_scope)
+        self.limit_minutes.valueChanged.connect(self._update_analysis_scope)
         self.require_gpu = QCheckBox("缺少 GPU 时直接停止")
         self.export_original_quality = QCheckBox("以原画质导出")
         self.export_original_quality.setChecked(False)
@@ -1036,7 +1084,20 @@ class MainWindow(QMainWindow):
         grid.addWidget(limit_box, 2, 0, 1, 5)
 
         layout.addLayout(grid)
+        self._update_analysis_scope()
         return card
+
+    def _update_analysis_scope(self, *_args) -> None:
+        limit_duration = (
+            self.limit_minutes.value() * 60 if self.limit_check.isChecked() else None
+        )
+        limited = limit_duration is not None
+        self.analysis_scope_label.setText(format_analysis_scope(limit_duration))
+        self.analysis_scope_label.setProperty(
+            "mode", "limited" if limited else "complete"
+        )
+        self.analysis_scope_label.style().unpolish(self.analysis_scope_label)
+        self.analysis_scope_label.style().polish(self.analysis_scope_label)
 
     def _form_values(self) -> AnalysisFormValues:
         input_path, output_path = parse_paths(
@@ -1078,6 +1139,24 @@ class MainWindow(QMainWindow):
         if not values.input_path.exists():
             QMessageBox.warning(self, "路径无效", "请选择存在的视频或文件夹。")
             return
+        scope_error = incompatible_analysis_scope_message(
+            values.limit_duration,
+            values.min_rally_duration,
+        )
+        if scope_error is not None:
+            QMessageBox.warning(self, "分析范围过短", scope_error)
+            return
+        if values.limit_duration is not None:
+            answer = QMessageBox.question(
+                self,
+                "确认分析范围",
+                f"当前只会分析视频前 {_number(values.limit_duration / 60)} 分钟，"
+                "其余内容不会检查。是否继续？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         if self._review_session is not None:
             answer = QMessageBox.question(
                 self,
@@ -1117,6 +1196,7 @@ class MainWindow(QMainWindow):
 
         self._stopping = False
         self._process_mode = "analysis"
+        self._active_analysis_limit_duration = values.limit_duration
         self._started_at = time.monotonic()
         self._progress_percent = 0.0
         self._process_output_buffer = ""
@@ -1361,19 +1441,24 @@ class MainWindow(QMainWindow):
             self.phase_label.setText(
                 f"已生成 {candidate_count} 个候选片段"
                 if candidate_count
-                else "没有找到满足条件的候选片段"
+                else "所选分析范围内没有找到候选片段"
             )
             self.eta_label.setText("已完成")
             suffix = "；部分源视频处理失败" if exit_code != 0 else ""
             self.task_summary_label.setText(
                 f"逐段播放并检查击球点，取消误判后再导出{suffix}。"
                 if candidate_count
-                else f"可以调整识别参数后重新分析{suffix}。"
+                else empty_candidate_guidance(
+                    self._active_analysis_limit_duration
+                )
+                + suffix
             )
         elif exit_code == 0:
             self.status_badge.setText("●  未生成候选")
             self.phase_label.setText("没有找到候选片段")
-            self.task_summary_label.setText("可以调低最短回合或灵敏度后重新分析。")
+            self.task_summary_label.setText(
+                empty_candidate_guidance(self._active_analysis_limit_duration)
+            )
         else:
             self.status_badge.setText("●  处理失败")
             self.task_summary_label.setText(
@@ -2098,6 +2183,19 @@ QFrame#analysisFeedback {
 QLabel#analysisFeedbackTitle { color: #f3f5f1; font-weight: 700; }
 QLabel#analysisFeedbackPercent { color: #b9f45a; font-weight: 700; }
 QLabel#analysisFeedbackPhase { color: #9da59a; font-size: 11px; }
+QLabel#analysisScope {
+    color: #c9d1c1;
+    background: #131713;
+    border: 1px solid #30382b;
+    border-radius: 8px;
+    padding: 7px 9px;
+    font-weight: 600;
+}
+QLabel#analysisScope[mode="limited"] {
+    color: #ffd56a;
+    background: #211b0c;
+    border-color: #8f6f18;
+}
 QListWidget#candidateList {
     color: #eef1f3;
     background: #0d0f11;

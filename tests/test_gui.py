@@ -20,7 +20,10 @@ from tennis_video_helper.gui import (
     build_optimize_arguments,
     build_stop_command,
     decode_utf8_chunks,
+    empty_candidate_guidance,
+    format_analysis_scope,
     format_clock,
+    incompatible_analysis_scope_message,
     parse_output_path,
     parse_paths,
     parse_acceleration_line,
@@ -343,6 +346,8 @@ def test_standard_menu_contains_input_output_and_parameter_actions() -> None:
     assert any("编辑" in title for title in menu_titles)
     assert any("视图" in title for title in menu_titles)
     assert any("帮助" in title for title in menu_titles)
+    assert window.auto_button.text() == "分析与复核"
+    assert window.start_button.text() == "开始分析"
     assert window.settings_button.text() == "参数调节"
     assert window.parameters_action.text() == "参数调节"
     assert window.parameter_card.isHidden() is True
@@ -354,6 +359,41 @@ def test_standard_menu_contains_input_output_and_parameter_actions() -> None:
 
     window.close()
     app.processEvents()
+
+
+def test_analysis_scope_is_visible_and_warns_when_limited() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+
+    assert window.analysis_scope_label.text() == "分析范围：完整视频"
+    assert window.analysis_scope_label.property("mode") == "complete"
+
+    window.limit_minutes.setValue(0.1)
+    window.limit_check.setChecked(True)
+
+    assert "仅前 0.1 分钟" in window.analysis_scope_label.text()
+    assert "其余内容不会检查" in window.analysis_scope_label.text()
+    assert window.analysis_scope_label.property("mode") == "limited"
+
+    window.close()
+    app.processEvents()
+
+
+def test_empty_candidate_guidance_explains_limited_range() -> None:
+    assert format_analysis_scope(None) == "分析范围：完整视频"
+    assert "完整视频" in empty_candidate_guidance(None)
+    assert "前 0.1 分钟" in empty_candidate_guidance(6.0)
+    assert "关闭“仅分析前”" in empty_candidate_guidance(6.0)
+
+
+def test_analysis_scope_shorter_than_minimum_rally_is_rejected() -> None:
+    message = incompatible_analysis_scope_message(6.0, 10.0)
+
+    assert message is not None
+    assert "前 6 秒" in message
+    assert "最短回合设置为 10 秒" in message
+    assert incompatible_analysis_scope_message(10.0, 10.0) is None
+    assert incompatible_analysis_scope_message(None, 10.0) is None
 
 
 def test_primary_analysis_button_is_not_clipped_in_compact_window() -> None:
