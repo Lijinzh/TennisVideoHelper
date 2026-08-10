@@ -1313,6 +1313,12 @@ class MainWindow(QMainWindow):
             manifest = review.get("manifest")
             if manifest:
                 self._review_manifest_path = Path(str(manifest))
+                try:
+                    session = load_review_session(self._review_manifest_path)
+                except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                    self._append_log(f"候选列表暂时无法刷新：{exc}")
+                else:
+                    self._set_review_session(session)
             return
         optimization = parse_optimization_line(line)
         if optimization is not None:
@@ -1386,18 +1392,32 @@ class MainWindow(QMainWindow):
 
         video_index = int(payload.get("video_index") or 0)
         video_total = int(payload.get("video_total") or 0)
+        candidate_count = int(payload.get("candidate_count") or 0)
         if video_total > 0:
             self.video_count_label.setText(f"第 {video_index}/{video_total} 个视频")
         current_video = payload.get("current_video")
         if current_video:
             current_path = Path(str(current_video))
-            self._show_video_preview(current_path)
+            if self._current_candidate_id is None:
+                self._show_video_preview(current_path)
             self.analysis_feedback_title.setText(f"正在分析：{current_path.name}")
-        self.task_summary_label.setText(
-            f"{phase} · {self.current_video_label.text()}"
-            if self.current_video_label.text()
-            else phase
-        )
+        if candidate_count > 0:
+            if self.candidate_list.count() > 0:
+                self._update_selected_count()
+                self.task_summary_label.setText(
+                    f"{phase} · 已生成 {candidate_count} 个候选，可边分析边预览"
+                )
+            else:
+                staged_message = f"正在载入已生成的 {candidate_count} 个候选"
+                self.selected_count_label.setText(staged_message)
+                self.task_summary_label.setText(f"{phase} · {staged_message}")
+        else:
+            self.selected_count_label.setText("处理中；候选生成后会立即显示")
+            self.task_summary_label.setText(
+                f"{phase} · {self.current_video_label.text()}"
+                if self.current_video_label.text()
+                else phase
+            )
         self._update_timing_labels()
 
     def _process_finished(self, exit_code: int, _status) -> None:
@@ -1513,16 +1533,31 @@ class MainWindow(QMainWindow):
                 self.status_badge.setText("●  等待任务")
 
     def _set_review_session(self, session: ReviewSession) -> None:
-        self._review_session = session
-        self._review_candidates = {
+        next_candidates = {
             clip.id: (video, clip)
             for video in session.videos
             for clip in video.clips
         }
+        same_session = (
+            self._review_session is not None
+            and self._review_session.root_dir == session.root_dir
+            and set(self._review_candidates).issubset(next_candidates)
+        )
+        if not same_session:
+            self._loading_candidates = True
+            self.candidate_list.clear()
+            self._loading_candidates = False
+            self._review_candidates.clear()
+            self._current_candidate_id = None
+
+        existing_ids = set(self._review_candidates)
+        self._review_session = session
+        self._review_candidates = next_candidates
         self._loading_candidates = True
-        self.candidate_list.clear()
         for video in session.videos:
             for clip in video.clips:
+                if clip.id in existing_ids:
+                    continue
                 item = QListWidgetItem(
                     f"片段 {clip.index:03d} · {clip.duration:.1f} 秒\n"
                     f"{video.source.name} · {len(clip.hits)} 个击球点"
@@ -1543,13 +1578,13 @@ class MainWindow(QMainWindow):
         self._loading_candidates = False
         self.video_count_label.setText(f"{len(session.clips)} 段")
         self._update_selected_count()
-        self.publish_button.setEnabled(bool(session.clips))
-        self.select_all_action.setEnabled(bool(session.clips))
-        self.select_none_action.setEnabled(bool(session.clips))
-        if session.clips:
+        idle = self.process.state() == QProcess.ProcessState.NotRunning
+        self.select_all_action.setEnabled(idle and bool(session.clips))
+        self.select_none_action.setEnabled(idle and bool(session.clips))
+        if session.clips and self.candidate_list.currentRow() < 0:
             self.candidate_list.setCurrentRow(0)
         else:
-            self._clear_preview_only("没有找到候选片段")
+            self._update_navigation_buttons()
 
     def _candidate_changed(
         self,
@@ -1746,7 +1781,7 @@ class MainWindow(QMainWindow):
         self.publish_button.setEnabled(False)
         self.select_all_action.setEnabled(False)
         self.select_none_action.setEnabled(False)
-        self._clear_preview_only("分析完成后，可在这里逐段播放候选视频")
+        self._clear_preview_only("候选生成后会立即出现在这里，可边分析边预览")
         self._update_navigation_buttons()
 
     def _discard_current_review(self) -> None:

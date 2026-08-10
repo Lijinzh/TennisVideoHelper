@@ -1,10 +1,20 @@
 from tennis_video_helper.config import AnalysisConfig
-from tennis_video_helper.fusion import build_rally_segments, fuse_events
+from tennis_video_helper.fusion import build_rally_segments, fuse_events, is_confirmed_hit
 from tennis_video_helper.models import AudioEvent, FusedEvent, VisualEvent
 
 
-def _audio(timestamp: float, confidence: float = 1.0) -> AudioEvent:
-    return AudioEvent(timestamp=timestamp, confidence=confidence, strength=10.0)
+def _audio(
+    timestamp: float,
+    confidence: float = 1.0,
+    *,
+    impact_score: float = 1.0,
+) -> AudioEvent:
+    return AudioEvent(
+        timestamp=timestamp,
+        confidence=confidence,
+        strength=10.0,
+        impact_score=impact_score,
+    )
 
 
 def _visual(timestamp: float, confidence: float = 1.0) -> VisualEvent:
@@ -22,6 +32,51 @@ def test_fuse_events_gives_high_score_to_aligned_audio_and_visual() -> None:
     assert len(events) == 1
     assert events[0].confidence >= 0.9
     assert events[0].reason == "音画共同确认近端击球"
+
+
+def test_ball_hit_sound_wins_over_earlier_footstep_near_same_swing() -> None:
+    events = fuse_events(
+        [
+            _audio(9.70, 0.95, impact_score=0.10),
+            _audio(10.06, 0.72, impact_score=0.95),
+        ],
+        [_visual(10.0)],
+        AnalysisConfig(),
+    )
+
+    paired = next(event for event in events if event.visual_confidence > 0)
+    footstep = next(event for event in events if event.visual_confidence == 0)
+    assert paired.timestamp == 10.06
+    assert paired.audio_impact_score == 0.95
+    assert is_confirmed_hit(paired, AnalysisConfig()) is True
+    assert footstep.timestamp == 9.70
+    assert is_confirmed_hit(footstep, AnalysisConfig()) is False
+
+
+def test_clean_hit_sound_and_racket_allow_smaller_real_swing() -> None:
+    supported_swing = FusedEvent(
+        timestamp=5.0,
+        audio_confidence=0.8,
+        visual_confidence=0.8,
+        confidence=0.9,
+        reason="清晰击球声与球拍共同确认",
+        visual_arm_motion_score=0.70,
+        audio_impact_score=0.9,
+        visual_racket_confidence=0.6,
+    )
+    footstep_swing = FusedEvent(
+        timestamp=5.0,
+        audio_confidence=0.9,
+        visual_confidence=0.8,
+        confidence=0.9,
+        reason="踏地声靠近普通摆臂",
+        visual_arm_motion_score=0.70,
+        audio_impact_score=0.1,
+        visual_racket_confidence=0.6,
+    )
+
+    assert is_confirmed_hit(supported_swing, AnalysisConfig()) is True
+    assert is_confirmed_hit(footstep_swing, AnalysisConfig()) is False
 
 
 def test_fuse_events_keeps_moderate_aligned_audio_and_pose_as_support() -> None:
@@ -139,7 +194,7 @@ def test_build_rally_segments_keeps_joint_evidence_across_slow_return_gaps() -> 
     segments = build_rally_segments(events, 300.0, AnalysisConfig())
 
     assert len(segments) == 1
-    assert segments[0].active_start == 207.8
+    assert segments[0].active_start == 215.1
     assert segments[0].active_end == 247.6
 
 
@@ -152,13 +207,79 @@ def test_build_rally_segments_does_not_start_rally_from_support_events_only() ->
     assert build_rally_segments(events, 30.0, AnalysisConfig()) == []
 
 
-def test_build_rally_segments_requires_at_least_one_sound_aligned_swing() -> None:
+def test_build_rally_segments_requires_multiple_sound_aligned_strong_swings() -> None:
     events = [
-        FusedEvent(float(timestamp), 0.0, 0.9, 0.75, "只有骨架动作")
+        FusedEvent(
+            float(timestamp),
+            0.8 if timestamp in (1, 7) else 0.0,
+            0.9,
+            0.75,
+            "走路持拍摆臂",
+            visual_arm_motion_score=1.0,
+        )
         for timestamp in range(1, 14, 2)
     ]
 
     assert build_rally_segments(events, 30.0, AnalysisConfig()) == []
+
+
+def test_build_rally_segments_keeps_three_confirmed_hits() -> None:
+    events = [
+        FusedEvent(1.0, 0.8, 0.9, 0.75, "音画一致强挥拍"),
+        FusedEvent(4.0, 0.5, 0.0, 0.25, "对手回球声"),
+        FusedEvent(7.0, 0.8, 0.9, 0.75, "音画一致强挥拍"),
+        FusedEvent(10.0, 0.5, 0.0, 0.25, "对手回球声"),
+        FusedEvent(13.0, 0.8, 0.9, 0.75, "音画一致强挥拍"),
+    ]
+
+    assert len(build_rally_segments(events, 30.0, AnalysisConfig())) == 1
+
+
+def test_unaligned_visual_motion_cannot_extend_confirmed_rally_boundaries() -> None:
+    events = [
+        FusedEvent(1.0, 0.0, 1.0, 0.8, "走路摆臂"),
+        FusedEvent(5.0, 1.0, 1.0, 0.95, "音画共同确认近端击球"),
+        FusedEvent(8.0, 1.0, 1.0, 0.95, "音画共同确认近端击球"),
+        FusedEvent(11.0, 1.0, 1.0, 0.95, "音画共同确认近端击球"),
+        FusedEvent(15.0, 0.0, 1.0, 0.8, "走路摆臂"),
+    ]
+
+    segments = build_rally_segments(
+        events,
+        30.0,
+        AnalysisConfig(min_rally_duration=6.0),
+    )
+
+    assert len(segments) == 1
+    assert segments[0].active_start == 5.0
+    assert segments[0].active_end == 11.0
+    assert segments[0].event_count == 3
+
+
+def test_right_handed_mode_rejects_left_only_swings_but_keeps_two_handed() -> None:
+    left_only = FusedEvent(
+        1.0,
+        1.0,
+        1.0,
+        0.95,
+        "音画共同确认近端击球",
+        visual_stroke_type="左手单手挥拍",
+    )
+    two_handed = FusedEvent(
+        1.0,
+        1.0,
+        1.0,
+        0.95,
+        "音画共同确认近端击球",
+        visual_stroke_type="双手挥拍",
+    )
+
+    assert is_confirmed_hit(left_only, AnalysisConfig()) is False
+    assert is_confirmed_hit(two_handed, AnalysisConfig()) is True
+    assert is_confirmed_hit(
+        left_only,
+        AnalysisConfig(player_handedness="auto"),
+    ) is True
 
 
 def test_build_rally_segments_rejects_repeated_talking_gestures() -> None:

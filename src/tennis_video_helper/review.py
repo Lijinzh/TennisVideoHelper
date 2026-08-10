@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -237,12 +237,26 @@ def _video_from_payload(payload: dict[str, Any]) -> ReviewVideoCandidate:
         staging_dir=Path(payload["staging_dir"]),
         media=MediaInfo(**media_payload),
         clips=tuple(clips),
-        audio_events=tuple(AudioEvent(**item) for item in payload.get("audio_events", [])),
-        visual_events=tuple(
-            VisualEvent(**item) for item in payload.get("visual_events", [])
+        audio_events=tuple(
+            AudioEvent(**_known_fields(AudioEvent, item))
+            for item in payload.get("audio_events", [])
         ),
-        fused_events=tuple(FusedEvent(**item) for item in payload.get("fused_events", [])),
+        visual_events=tuple(
+            VisualEvent(**_known_fields(VisualEvent, item))
+            for item in payload.get("visual_events", [])
+        ),
+        fused_events=tuple(
+            FusedEvent(**_known_fields(FusedEvent, item))
+            for item in payload.get("fused_events", [])
+        ),
     )
+
+
+def _known_fields(model_type, payload: dict[str, Any]) -> dict[str, Any]:
+    """忽略未来版本新增字段，让旧候选清单仍能被当前界面载入。"""
+
+    names = {item.name for item in fields(model_type)}
+    return {key: value for key, value in payload.items() if key in names}
 
 
 def _jsonable(value: Any) -> Any:

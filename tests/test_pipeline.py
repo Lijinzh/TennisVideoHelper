@@ -4,9 +4,17 @@ from pathlib import Path
 import numpy as np
 
 from tennis_video_helper.config import AnalysisConfig
-from tennis_video_helper.models import AudioEvent, MediaInfo, VisualEvent
+from tennis_video_helper.models import (
+    AudioEvent,
+    FusedEvent,
+    MediaInfo,
+    RallySegment,
+    VisualEvent,
+)
 from tennis_video_helper.pipeline import (
     PipelineServices,
+    ProgressUpdate,
+    _review_hits,
     _replace_output_dir,
     prepare_review_batch,
     process_batch,
@@ -61,6 +69,21 @@ def test_replace_output_dir_retries_transient_permission_error(
     assert attempts == 2
     assert (output / "new.txt").read_text(encoding="utf-8") == "new"
     assert not (output / "old.txt").exists()
+
+
+def test_review_timeline_only_shows_audio_aligned_strong_swings() -> None:
+    segment = RallySegment(5.0, 11.0, 3.0, 14.0, 6.0, 0.9, 3)
+    events = (
+        FusedEvent(4.0, 0.0, 1.0, 0.8, "走路摆臂"),
+        FusedEvent(5.0, 1.0, 1.0, 0.95, "音画共同确认近端击球"),
+        FusedEvent(8.0, 1.0, 1.0, 0.95, "音画共同确认近端击球"),
+        FusedEvent(11.0, 1.0, 1.0, 0.95, "音画共同确认近端击球"),
+        FusedEvent(13.0, 0.0, 1.0, 0.8, "准备动作"),
+    )
+
+    hits = _review_hits(segment, events, AnalysisConfig())
+
+    assert [hit.source_timestamp for hit in hits] == [5.0, 8.0, 11.0]
 
 
 def test_process_batch_continues_after_one_video_fails(tmp_path: Path) -> None:
@@ -256,11 +279,22 @@ def test_prepare_review_batch_stages_verified_candidates_without_publishing(
         write_reports=lambda *_args: None,
     )
 
+    updates: list[ProgressUpdate] = []
+    streamed_candidate_counts: list[int] = []
+
+    def capture_review_update(session) -> None:
+        assert session.manifest_path.exists()
+        streamed_candidate_counts.append(
+            len(load_review_session(session.manifest_path).clips)
+        )
+
     result = prepare_review_batch(
         source,
         output,
         AnalysisConfig(overwrite_existing_output=True),
         services=services,
+        progress_callback=updates.append,
+        review_update_callback=capture_review_update,
     )
 
     assert result.failure_count == 0
@@ -269,6 +303,8 @@ def test_prepare_review_batch_stages_verified_candidates_without_publishing(
     assert not (output / source.stem).exists()
     loaded = load_review_session(result.session.manifest_path)
     assert len(loaded.clips) == 1
+    assert streamed_candidate_counts == [1]
+    assert updates[-1].candidate_count == 1
     assert loaded.clips[0].path.exists()
     assert len(loaded.clips[0].hits) >= 2
     assert loaded.clips[0].hits[0].timestamp >= 0

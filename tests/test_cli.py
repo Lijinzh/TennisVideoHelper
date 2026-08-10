@@ -5,7 +5,13 @@ from tennis_video_helper import cli
 from tennis_video_helper.cli import app
 from pathlib import Path
 
-from tennis_video_helper.pipeline import BatchResult, ProgressUpdate, VideoProcessResult
+from tennis_video_helper.pipeline import (
+    BatchResult,
+    ProgressUpdate,
+    ReviewBatchResult,
+    VideoProcessResult,
+)
+from tennis_video_helper.review import ReviewSession
 
 
 runner = CliRunner()
@@ -54,6 +60,8 @@ def test_cli_builds_analysis_config_from_options(tmp_path, monkeypatch) -> None:
             str(tmp_path / "output"),
             "--min-rally-duration",
             "18",
+            "--min-confirmed-hits",
+            "4",
             "--pre-roll",
             "3",
             "--post-roll",
@@ -66,6 +74,8 @@ def test_cli_builds_analysis_config_from_options(tmp_path, monkeypatch) -> None:
             "1.2",
             "--visual-sensitivity",
             "0.8",
+            "--handedness",
+            "left",
             "--backend",
             "torch",
             "--precision",
@@ -73,7 +83,6 @@ def test_cli_builds_analysis_config_from_options(tmp_path, monkeypatch) -> None:
             "--batch-size",
             "8",
             "--require-gpu",
-            "--overwrite-existing",
             "--original-quality",
             "--limit-duration",
             "120",
@@ -83,12 +92,14 @@ def test_cli_builds_analysis_config_from_options(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0
     config = captured["config"]
     assert config.min_rally_duration == 18.0
+    assert config.min_confirmed_hits == 4
     assert config.pre_roll == 3.0
     assert config.post_roll == 4.0
     assert config.end_silence == 5.0
     assert config.analysis_fps == 8
     assert config.audio_sensitivity == 1.2
     assert config.visual_sensitivity == 0.8
+    assert config.player_handedness == "left"
     assert config.inference_backend == "torch"
     assert config.inference_precision == "fp32"
     assert config.inference_batch_size == 8
@@ -108,6 +119,56 @@ def test_progress_line_contains_machine_readable_payload() -> None:
     payload = json.loads(line.removeprefix(cli.PROGRESS_PREFIX))
     assert payload["percent"] == 42.5
     assert payload["phase"] == "GPU 分析画面"
+    assert payload["candidate_count"] == 0
+
+
+def test_review_candidates_are_emitted_before_batch_completion(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    source = tmp_path / "source.mp4"
+    source.touch()
+    session = ReviewSession(tmp_path / ".review", True, ())
+    monkeypatch.setattr(
+        cli,
+        "_check_runtime",
+        lambda **_kwargs: cli.RuntimeCapabilities(True, True, "Test GPU"),
+    )
+
+    def fake_prepare_review_batch(
+        input_path,
+        output,
+        config,
+        *,
+        limit_duration=None,
+        progress_callback=None,
+        review_update_callback=None,
+    ):
+        assert review_update_callback is not None
+        review_update_callback(session)
+        return ReviewBatchResult((VideoProcessResult(source, output),), session)
+
+    monkeypatch.setattr(cli, "prepare_review_batch", fake_prepare_review_batch)
+
+    result = runner.invoke(
+        app,
+        [
+            "analyze",
+            str(source),
+            "--output",
+            str(tmp_path / "output"),
+            "--prepare-review",
+            "--progress-json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    review_payloads = [
+        json.loads(line.removeprefix(cli.REVIEW_PREFIX))
+        for line in result.stdout.splitlines()
+        if line.startswith(cli.REVIEW_PREFIX)
+    ]
+    assert [payload["complete"] for payload in review_payloads] == [False, True]
 
 
 def test_cli_fails_when_no_supported_videos_are_found(tmp_path, monkeypatch) -> None:

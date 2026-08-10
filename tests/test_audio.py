@@ -26,6 +26,23 @@ def _synthetic_hits(
     return samples
 
 
+def _add_low_footstep(
+    samples: np.ndarray,
+    timestamp: float,
+    *,
+    sample_rate: int = 22_050,
+) -> None:
+    burst_length = int(sample_rate * 0.09)
+    phase = np.arange(burst_length) / sample_rate
+    burst = (
+        0.95
+        * np.sin(2 * np.pi * 120 * phase)
+        * np.hanning(burst_length)
+    ).astype(np.float32)
+    start = int(timestamp * sample_rate)
+    samples[start : start + burst_length] += burst
+
+
 def test_detect_audio_events_finds_synthetic_hit_times() -> None:
     samples = _synthetic_hits([1.0, 2.0, 3.0])
 
@@ -43,6 +60,19 @@ def test_detect_audio_events_deduplicates_peaks_that_are_too_close() -> None:
     events = detect_audio_events(samples, 22_050, AnalysisConfig())
 
     assert len(events) == 1
+
+
+def test_detect_audio_events_scores_racket_hit_above_low_footstep() -> None:
+    samples = _synthetic_hits([2.0])
+    _add_low_footstep(samples, 1.0)
+
+    events = detect_audio_events(samples, 22_050, AnalysisConfig())
+
+    footstep = min(events, key=lambda event: abs(event.timestamp - 1.0))
+    racket_hit = min(events, key=lambda event: abs(event.timestamp - 2.0))
+    assert abs(footstep.timestamp - 1.0) < 0.08
+    assert abs(racket_hit.timestamp - 2.0) < 0.08
+    assert racket_hit.impact_score >= footstep.impact_score + 0.35
 
 
 def test_extract_audio_uses_mono_pcm_and_configured_sample_rate(

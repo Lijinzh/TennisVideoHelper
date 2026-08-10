@@ -84,6 +84,16 @@ def test_review_session_round_trip_and_publishes_only_selected_clip(
         ReviewSession(root, overwrite_existing_output=True, videos=(video,))
     )
 
+    manifest_payload = json.loads(manifest.read_text(encoding="utf-8"))
+    stored_video = manifest_payload["videos"][0]
+    stored_video["audio_events"][0]["future_audio_field"] = "ignored"
+    stored_video["visual_events"][0]["future_visual_field"] = "ignored"
+    stored_video["fused_events"][0]["future_fused_field"] = "ignored"
+    manifest.write_text(
+        json.dumps(manifest_payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
     loaded = load_review_session(manifest)
     published = publish_review_session(loaded, ["1:1"])
 

@@ -60,6 +60,7 @@ class AudioEvent:
     timestamp: float
     confidence: float
     strength: float
+    impact_score: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +88,9 @@ class FusedEvent:
     confidence: float
     reason: str
     visual_arm_motion_score: float = 1.0
+    visual_stroke_type: str = "挥拍"
+    audio_impact_score: float = 1.0
+    visual_racket_confidence: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)

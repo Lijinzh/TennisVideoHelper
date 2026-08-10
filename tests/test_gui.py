@@ -528,6 +528,38 @@ def test_review_session_populates_selectable_candidates_and_hit_timeline(
     assert window.hit_timeline._hit_positions_ms == (2_000, 8_000)
     assert window.publish_button.isEnabled() is True
 
+    window.candidate_list.item(0).setCheckState(Qt.CheckState.Unchecked)
+    second_clip_path = clip_path.with_name("rally_002.mp4")
+    second_clip_path.write_bytes(b"preview-2")
+    second_clip = ReviewClipCandidate(
+        id="1:2",
+        index=2,
+        path=second_clip_path,
+        segment=RallySegment(14, 24, 13, 26, 10, 0.9, 4),
+        hits=(ReviewHit(3.0, 17.0, 0.9, "击球三"),),
+    )
+    expanded_video = ReviewVideoCandidate(
+        source=video.source,
+        output_dir=video.output_dir,
+        staging_dir=video.staging_dir,
+        media=video.media,
+        clips=(clip, second_clip),
+        audio_events=video.audio_events,
+        visual_events=video.visual_events,
+        fused_events=video.fused_events,
+    )
+    window._set_review_session(
+        ReviewSession(tmp_path / "review", True, (expanded_video,))
+    )
+    app.processEvents()
+
+    assert window.candidate_list.count() == 2
+    assert window.candidate_list.item(0).checkState() == Qt.CheckState.Unchecked
+    assert window.candidate_list.item(1).checkState() == Qt.CheckState.Checked
+    assert window.candidate_list.currentRow() == 0
+    assert window._current_candidate_id == "1:1"
+    assert window.selected_count_label.text() == "已选 1/2 段"
+
     window._review_session = None
     window.close()
     app.processEvents()
@@ -572,6 +604,7 @@ def test_progress_payload_updates_visible_status() -> None:
             "current_video": None,
             "video_index": 2,
             "video_total": 4,
+            "candidate_count": 12,
         }
     )
 
@@ -580,6 +613,7 @@ def test_progress_payload_updates_visible_status() -> None:
     assert window.percent_label.text() == "42%"
     assert window.phase_label.text() == "GPU 分析画面"
     assert window.video_count_label.text() == "第 2/4 个视频"
+    assert "正在载入已生成的 12 个候选" in window.selected_count_label.text()
     assert window.eta_label.text() != "正在估算"
     assert window.analysis_feedback.isHidden() is False
     assert window.analysis_progress.value() == 425

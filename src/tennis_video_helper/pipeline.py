@@ -15,9 +15,9 @@ import numpy as np
 
 from tennis_video_helper.config import AnalysisConfig
 from tennis_video_helper.fusion import (
-    VISUAL_CONFIRMATION_THRESHOLD,
     build_rally_segments,
     fuse_events,
+    is_confirmed_hit,
 )
 from tennis_video_helper.models import (
     AudioEvent,
@@ -133,9 +133,11 @@ class ProgressUpdate:
     current_video: Path | None
     video_index: int
     video_total: int
+    candidate_count: int = 0
 
 
 ProgressCallback = Callable[[ProgressUpdate], None]
+ReviewUpdateCallback = Callable[[ReviewSession], None]
 VideoProgressCallback = Callable[[float, str], None]
 
 
@@ -230,6 +232,7 @@ def prepare_review_batch(
     limit_duration: float | None = None,
     services: PipelineServices | None = None,
     progress_callback: ProgressCallback | None = None,
+    review_update_callback: ReviewUpdateCallback | None = None,
 ) -> ReviewBatchResult:
     """生成经过验证的候选片段，但在人工勾选前不发布正式结果。"""
 
@@ -243,6 +246,7 @@ def prepare_review_batch(
     results: list[VideoProcessResult] = []
     review_videos: list[ReviewVideoCandidate] = []
     reserved_outputs: set[Path] = set()
+    candidate_count = 0
     video_total = len(sources)
     if progress_callback is not None:
         progress_callback(ProgressUpdate(0.0, "准备候选复核", None, 0, video_total))
@@ -260,6 +264,7 @@ def prepare_review_batch(
                     current_video=source,
                     video_index=video_index,
                     video_total=video_total,
+                    candidate_count=candidate_count,
                 )
             )
 
@@ -311,6 +316,15 @@ def prepare_review_batch(
                     fused_events=assets.fused_events,
                 )
             )
+            candidate_count += len(assets.records)
+            partial_session = ReviewSession(
+                root_dir=session_root,
+                overwrite_existing_output=config.overwrite_existing_output,
+                videos=tuple(review_videos),
+            )
+            save_review_session(partial_session)
+            if review_update_callback is not None:
+                review_update_callback(partial_session)
             results.append(
                 VideoProcessResult(
                     source=source,
@@ -353,6 +367,7 @@ def prepare_review_batch(
                 sources[-1] if sources else None,
                 video_total,
                 video_total,
+                candidate_count,
             )
         )
     return ReviewBatchResult(tuple(results), session)
@@ -637,8 +652,7 @@ def _review_hits(
         )
         for event in fused_events
         if segment.output_start <= event.timestamp <= segment.output_end
-        and event.visual_confidence >= VISUAL_CONFIRMATION_THRESHOLD
-        and event.confidence >= config.rally_support_threshold
+        and is_confirmed_hit(event, config)
     ]
     return tuple(hits)
 

@@ -73,8 +73,24 @@ def detect_audio_events(
     frames = frames[:frame_count] * np.hanning(n_fft)
     spectrum = np.abs(np.fft.rfft(frames, axis=1))
     onset_envelope = np.zeros(len(spectrum), dtype=np.float64)
+    high_frequency_flux = np.zeros(len(spectrum), dtype=np.float64)
+    low_frequency_flux = np.zeros(len(spectrum), dtype=np.float64)
+    total_flux = np.zeros(len(spectrum), dtype=np.float64)
     if len(spectrum) > 1:
-        onset_envelope[1:] = np.mean(np.maximum(np.diff(spectrum, axis=0), 0.0), axis=1)
+        positive_flux = np.maximum(np.diff(spectrum, axis=0), 0.0)
+        onset_envelope[1:] = np.mean(positive_flux, axis=1)
+        frequencies = np.fft.rfftfreq(n_fft, d=1.0 / sample_rate)
+        high_frequency_flux[1:] = np.sum(
+            positive_flux[:, frequencies >= 1_500.0],
+            axis=1,
+        )
+        low_frequency_flux[1:] = np.sum(
+            positive_flux[:, frequencies <= 500.0],
+            axis=1,
+        )
+        total_flux[1:] = np.sum(positive_flux, axis=1)
+        del positive_flux
+    del spectrum
     if onset_envelope.size == 0 or float(np.max(onset_envelope)) <= 0:
         return []
 
@@ -100,9 +116,47 @@ def detect_audio_events(
                 timestamp=max(0.0, float(timestamp) - center_offset),
                 confidence=confidence,
                 strength=float(height),
+                impact_score=_impact_score(
+                    int(round(timestamp * sample_rate / hop_length)),
+                    onset_envelope,
+                    high_frequency_flux,
+                    low_frequency_flux,
+                    total_flux,
+                ),
             )
         )
     return events
+
+
+def _impact_score(
+    peak_index: int,
+    onset_envelope: np.ndarray,
+    high_frequency_flux: np.ndarray,
+    low_frequency_flux: np.ndarray,
+    total_flux: np.ndarray,
+) -> float:
+    """区分清脆短促的球拍触球声与偏低频、持续更久的踏地声。"""
+
+    total = max(float(total_flux[peak_index]), 1e-12)
+    high_ratio = float(high_frequency_flux[peak_index]) / total
+    low_ratio = float(low_frequency_flux[peak_index]) / total
+    frequency_score = float(np.clip((high_ratio - 0.18) / 0.42, 0.0, 1.0))
+    low_frequency_penalty = float(np.clip((low_ratio - 0.35) / 0.45, 0.0, 1.0))
+
+    peak = max(float(onset_envelope[peak_index]), 1e-12)
+    decay_end = min(len(onset_envelope), peak_index + 5)
+    trailing = onset_envelope[peak_index + 1 : decay_end]
+    trailing_level = float(np.mean(trailing)) if trailing.size else 0.0
+    impulsiveness = float(np.clip(1.0 - trailing_level / peak, 0.0, 1.0))
+    return float(
+        np.clip(
+            0.70 * frequency_score
+            + 0.30 * impulsiveness
+            - 0.25 * low_frequency_penalty,
+            0.0,
+            1.0,
+        )
+    )
 
 
 def _find_separated_peaks(

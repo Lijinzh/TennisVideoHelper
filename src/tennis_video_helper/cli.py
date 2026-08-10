@@ -87,6 +87,13 @@ def analyze(
         min=0.1,
         help="最短有效对打时长；调大后只保留更长回合。",
     ),
+    min_confirmed_hits: int = typer.Option(
+        3,
+        "--min-confirmed-hits",
+        min=1,
+        max=50,
+        help="每段至少包含的音画一致强挥拍次数；调大后更偏向多拍有效回合。",
+    ),
     pre_roll: float = typer.Option(
         2.0,
         "--pre-roll",
@@ -124,6 +131,11 @@ def analyze(
         min=0.1,
         help="挥拍动作候选灵敏度。",
     ),
+    player_handedness: str = typer.Option(
+        "right",
+        "--handedness",
+        help="持拍手：right、left 或 auto；双手挥拍在左右手模式下都允许。",
+    ),
     inference_backend: str = typer.Option(
         "auto",
         "--backend",
@@ -147,7 +159,7 @@ def analyze(
         help="缺少 CUDA 时停止，或明确警告后回退 CPU。",
     ),
     overwrite_existing: bool = typer.Option(
-        False,
+        True,
         "--overwrite-existing/--keep-existing",
         help="新结果成功后替换同名旧结果，或保留并创建带编号的新目录。",
     ),
@@ -186,12 +198,14 @@ def analyze(
 
     config = AnalysisConfig(
         min_rally_duration=min_rally_duration,
+        min_confirmed_hits=min_confirmed_hits,
         pre_roll=pre_roll,
         post_roll=post_roll,
         end_silence=end_silence,
         analysis_fps=analysis_fps,
         audio_sensitivity=audio_sensitivity,
         visual_sensitivity=visual_sensitivity,
+        player_handedness=player_handedness,
         inference_backend=inference_backend,
         inference_precision=inference_precision,
         inference_batch_size=inference_batch_size,
@@ -223,6 +237,23 @@ def analyze(
         with progress_lock:
             typer.echo(_format_progress_line(update))
 
+    def emit_review_update(session) -> None:
+        if not progress_json:
+            return
+        with progress_lock:
+            typer.echo(
+                REVIEW_PREFIX
+                + json.dumps(
+                    {
+                        "manifest": str(session.manifest_path),
+                        "candidate_count": len(session.clips),
+                        "complete": False,
+                    },
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                )
+            )
+
     if prepare_review:
         result = prepare_review_batch(
             input_path,
@@ -230,6 +261,7 @@ def analyze(
             config,
             limit_duration=limit_duration,
             progress_callback=emit_progress if progress_json else None,
+            review_update_callback=emit_review_update if progress_json else None,
         )
     else:
         result = process_batch(
@@ -272,6 +304,7 @@ def analyze(
                 {
                     "manifest": str(result.session.manifest_path),
                     "candidate_count": len(result.session.clips),
+                    "complete": True,
                 },
                 ensure_ascii=True,
                 separators=(",", ":"),
@@ -408,6 +441,7 @@ def _format_progress_line(update: ProgressUpdate) -> str:
         "current_video": str(update.current_video) if update.current_video else None,
         "video_index": update.video_index,
         "video_total": update.video_total,
+        "candidate_count": update.candidate_count,
     }
     return PROGRESS_PREFIX + json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
 
