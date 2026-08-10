@@ -50,6 +50,17 @@ def _pickup_pose(*, wrist_shift: float = 0.0) -> np.ndarray:
     return keypoints
 
 
+def _double_backhand_pose(*, wrist_shift: float = 30.0) -> np.ndarray:
+    keypoints = _pose()
+    keypoints[7, 0] -= wrist_shift * 0.55
+    keypoints[8, 0] -= wrist_shift * 0.55
+    keypoints[9, 0] -= wrist_shift
+    keypoints[10, 0] -= wrist_shift
+    keypoints[5, 1] -= 3.0
+    keypoints[6, 1] += 3.0
+    return keypoints
+
+
 def test_select_primary_detection_prefers_large_nearby_person() -> None:
     detections = [
         PoseDetection(np.array([0, 0, 20, 40]), _pose(), 0.9),
@@ -102,6 +113,27 @@ def test_pose_stroke_detector_requires_upright_swing_trajectory() -> None:
     assert event is not None
     assert event.posture_score > 0.8
     assert event.arm_motion_score > event.leg_motion_score
+
+
+def test_pose_stroke_detector_scores_compact_two_handed_backhand_jointly() -> None:
+    detector = PoseStrokeDetector(SimpleNamespace(visual_sensitivity=1.0))
+
+    assert detector.observe(0.0, _pose(), 0.0) is None
+    event = detector.observe(0.2, _double_backhand_pose(), 0.0)
+
+    assert event is not None
+    assert event.stroke_type == "双手挥拍"
+    assert event.arm_motion_score >= 0.85
+
+
+def test_opposing_single_arm_motion_is_not_labeled_two_handed() -> None:
+    detector = PoseStrokeDetector(SimpleNamespace(visual_sensitivity=1.0))
+
+    assert detector.observe(0.0, _pose(), 0.0) is None
+    event = detector.observe(0.2, _pose(wrist_shift=30), 0.0)
+
+    assert event is not None
+    assert event.stroke_type != "双手挥拍"
 
 
 def test_pose_stroke_detector_rejects_pickup_even_when_arms_move() -> None:

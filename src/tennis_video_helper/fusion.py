@@ -13,6 +13,7 @@ from tennis_video_helper.models import (
 )
 
 VISUAL_MATCH_WINDOW = 0.45
+DOUBLE_HANDED_VISUAL_MATCH_WINDOW = 0.70
 VISUAL_CONFIRMATION_THRESHOLD = 0.30
 MAX_VISUAL_ANCHOR_GAP_FACTOR = 2.5
 STRONG_SWING_ARM_MOTION = 0.85
@@ -193,9 +194,14 @@ def _match_audio_and_visual_events(
     for audio_index, audio_event in enumerate(audio_events):
         for visual_index, visual_event in enumerate(visual_events):
             distance = abs(audio_event.timestamp - visual_event.timestamp)
-            if distance > VISUAL_MATCH_WINDOW:
+            match_window = (
+                DOUBLE_HANDED_VISUAL_MATCH_WINDOW
+                if visual_event.stroke_type.startswith("双手")
+                else VISUAL_MATCH_WINDOW
+            )
+            if distance > match_window:
                 continue
-            proximity = 1.0 - distance / VISUAL_MATCH_WINDOW
+            proximity = 1.0 - distance / match_window
             score = (
                 0.60 * audio_event.impact_score
                 + 0.25 * audio_event.confidence

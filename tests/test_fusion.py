@@ -34,6 +34,34 @@ def test_fuse_events_gives_high_score_to_aligned_audio_and_visual() -> None:
     assert events[0].reason == "音画共同确认近端击球"
 
 
+def test_two_handed_backhand_uses_wider_audio_alignment_window() -> None:
+    backhand = VisualEvent(
+        timestamp=1.60,
+        confidence=0.9,
+        motion_score=0.9,
+        global_motion=0.0,
+        arm_motion_score=0.9,
+        stroke_type="双手挥拍",
+        racket_confidence=0.5,
+    )
+    forehand = VisualEvent(
+        timestamp=1.60,
+        confidence=0.9,
+        motion_score=0.9,
+        global_motion=0.0,
+        arm_motion_score=0.9,
+        stroke_type="右手单手挥拍",
+        racket_confidence=0.5,
+    )
+
+    matched_backhand = fuse_events([_audio(1.0)], [backhand], AnalysisConfig())
+    unmatched_forehand = fuse_events([_audio(1.0)], [forehand], AnalysisConfig())
+
+    assert len(matched_backhand) == 1
+    assert matched_backhand[0].reason == "音画共同确认近端击球"
+    assert len(unmatched_forehand) == 2
+
+
 def test_ball_hit_sound_wins_over_earlier_footstep_near_same_swing() -> None:
     events = fuse_events(
         [

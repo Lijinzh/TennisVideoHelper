@@ -20,7 +20,7 @@ class AnalysisConfig:
     analysis_fps: int = 12  # 每秒分析的画面帧数，调大后动作定位更细但推理更慢且显存占用增加，调小后速度更快但可能漏掉快速挥拍
     audio_sample_rate: int = 22_050  # 音频分析采样率，调大后保留更多高频细节但计算量增加，调小后分析更快但可能削弱击球瞬态特征
     audio_sensitivity: float = 1.0  # 声音候选灵敏度，调大后能检出更弱击球但背景球场误检会增加，调小后误检减少但可能漏掉远端或较轻的击球声
-    visual_sensitivity: float = 1.0  # 骨架挥拍灵敏度；基于站立姿态及手腕/肘部相对躯干的短时轨迹，调大后轻微挥拍更易检出但空挥风险增加
+    visual_sensitivity: float = 1.0  # 骨架挥拍灵敏度；正手看主手轨迹，双反综合双腕同向运动和肩部转体，调大后轻微挥拍更易检出但空挥风险增加
     player_handedness: str = "right"  # 持拍手：right 接受右手单手和双手挥拍，left 接受左手单手和双手挥拍，auto 不限制
     aligned_audio_reliability: float = 0.9  # 音画时间对齐时声音证据的可靠度；未经骨架确认的声音不会独立启动或延长回合
     aligned_visual_reliability: float = 0.85  # 音画时间对齐时挥拍证据的可靠度，调大后动作对回合延续贡献更大但空挥风险增加，调小后更依赖击球声音
