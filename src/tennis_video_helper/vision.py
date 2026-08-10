@@ -90,7 +90,6 @@ class StrokeMotionMetrics:
     arm_motion: float
     secondary_arm_motion: float
     leg_motion: float
-    torso_rotation: float
     stroke_type: str
 
 
@@ -403,13 +402,7 @@ def stroke_motion_metrics(
         _leg_motion(previous_normalized, current_normalized, RIGHT_LEG),
     )
 
-    (
-        wrist_motion,
-        lateral_sweep,
-        elbow_motion,
-        extension_change,
-        dominant_delta,
-    ) = dominant
+    wrist_motion, lateral_sweep, elbow_motion, extension_change = dominant
     arm_specific_motion = max(0.0, wrist_motion - 0.45 * leg_motion)
     stroke_score = (
         0.62 * arm_specific_motion
@@ -418,44 +411,21 @@ def stroke_motion_metrics(
         + 0.08 * elbow_motion
     )
     secondary_wrist_motion = secondary[0]
-    secondary_delta = secondary[4]
-    direction_alignment = _motion_direction_alignment(
-        dominant_delta,
-        secondary_delta,
-    )
-    hand_proximity = min(
-        _wrist_distance(previous_normalized),
-        _wrist_distance(current_normalized),
-    )
-    torso_rotation = _torso_rotation(previous_normalized, current_normalized)
     two_handed = (
-        secondary_wrist_motion >= 0.14
-        and secondary_wrist_motion >= 0.35 * max(wrist_motion, 1e-6)
-        and (direction_alignment >= 0.20 or hand_proximity <= 0.80)
+        secondary_wrist_motion >= 0.22
+        and secondary_wrist_motion >= 0.65 * max(wrist_motion, 1e-6)
     )
     if two_handed:
-        coordinated_arm_motion = (
-            wrist_motion
-            + 0.35 * secondary_wrist_motion
-            + 0.20 * min(torso_rotation, 1.0)
-        )
-        stroke_score += (
-            0.20 * secondary_wrist_motion
-            + 0.12 * min(torso_rotation, 1.0)
-            + 0.06 * max(0.0, direction_alignment) * secondary_wrist_motion
-        )
-        arm_motion = coordinated_arm_motion
+        stroke_score += 0.08 * secondary_wrist_motion
         stroke_type = "双手挥拍"
     else:
-        arm_motion = wrist_motion
         stroke_type = "左手单手挥拍" if dominant_index == 0 else "右手单手挥拍"
 
     return StrokeMotionMetrics(
         stroke_score=float(stroke_score),
-        arm_motion=float(arm_motion),
+        arm_motion=float(wrist_motion),
         secondary_arm_motion=float(secondary_wrist_motion),
         leg_motion=float(leg_motion),
-        torso_rotation=float(torso_rotation),
         stroke_type=stroke_type,
     )
 
@@ -464,7 +434,7 @@ def _arm_motion_metrics(
     previous: np.ndarray,
     current: np.ndarray,
     indices: tuple[int, int, int],
-) -> tuple[float, float, float, float, np.ndarray]:
+) -> tuple[float, float, float, float]:
     shoulder_index, elbow_index, wrist_index = indices
     if min(
         previous[shoulder_index, 2],
@@ -472,7 +442,7 @@ def _arm_motion_metrics(
         previous[wrist_index, 2],
         current[wrist_index, 2],
     ) < KEYPOINT_CONFIDENCE:
-        return 0.0, 0.0, 0.0, 0.0, np.zeros(2, dtype=np.float32)
+        return 0.0, 0.0, 0.0, 0.0
 
     previous_wrist = previous[wrist_index, :2] - previous[shoulder_index, :2]
     current_wrist = current[wrist_index, :2] - current[shoulder_index, :2]
@@ -488,26 +458,7 @@ def _arm_motion_metrics(
         previous_elbow = previous[elbow_index, :2] - previous[shoulder_index, :2]
         current_elbow = current[elbow_index, :2] - current[shoulder_index, :2]
         elbow_motion = float(np.linalg.norm(current_elbow - previous_elbow))
-    return wrist_motion, lateral_sweep, elbow_motion, extension_change, wrist_delta
-
-
-def _motion_direction_alignment(first: np.ndarray, second: np.ndarray) -> float:
-    denominator = float(np.linalg.norm(first) * np.linalg.norm(second))
-    if denominator < 1e-6:
-        return 0.0
-    return float(np.clip(np.dot(first, second) / denominator, -1.0, 1.0))
-
-
-def _wrist_distance(pose: np.ndarray) -> float:
-    if min(pose[9, 2], pose[10, 2]) < KEYPOINT_CONFIDENCE:
-        return float("inf")
-    return float(np.linalg.norm(pose[9, :2] - pose[10, :2]))
-
-
-def _torso_rotation(previous: np.ndarray, current: np.ndarray) -> float:
-    previous_shoulders = previous[6, :2] - previous[5, :2]
-    current_shoulders = current[6, :2] - current[5, :2]
-    return float(np.linalg.norm(current_shoulders - previous_shoulders))
+    return wrist_motion, lateral_sweep, elbow_motion, extension_change
 
 
 def _leg_motion(
@@ -1202,11 +1153,41 @@ def _consume_prediction_results(
                 )
         previous_center = selected.center
     for verified_event in racket_verifier.verify(
-        racket_candidates,
+        _select_racket_candidates(racket_candidates),
         cuda_tensor=cuda_tensor,
     ):
         _append_or_replace_visual_event(events, verified_event)
     return previous_center
+
+
+def _select_racket_candidates(
+    candidates: list[RacketCandidate],
+    *,
+    max_frames_per_swing: int = 2,
+) -> list[RacketCandidate]:
+    """每次挥拍保留两个高分帧，兼顾速度和球拍遮挡时的备用画面。"""
+
+    if len(candidates) <= max_frames_per_swing:
+        return candidates
+    groups: list[list[RacketCandidate]] = []
+    for candidate in candidates:
+        if (
+            not groups
+            or candidate.event.timestamp - groups[-1][-1].event.timestamp
+            >= VISUAL_EVENT_COOLDOWN_SECONDS
+        ):
+            groups.append([candidate])
+        else:
+            groups[-1].append(candidate)
+    selected: list[RacketCandidate] = []
+    for group in groups:
+        strongest = sorted(
+            group,
+            key=lambda item: item.event.confidence,
+            reverse=True,
+        )[:max_frames_per_swing]
+        selected.extend(sorted(strongest, key=lambda item: item.event.timestamp))
+    return selected
 
 
 def _append_or_replace_visual_event(

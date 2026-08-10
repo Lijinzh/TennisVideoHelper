@@ -34,34 +34,6 @@ def test_fuse_events_gives_high_score_to_aligned_audio_and_visual() -> None:
     assert events[0].reason == "音画共同确认近端击球"
 
 
-def test_two_handed_backhand_uses_wider_audio_alignment_window() -> None:
-    backhand = VisualEvent(
-        timestamp=1.60,
-        confidence=0.9,
-        motion_score=0.9,
-        global_motion=0.0,
-        arm_motion_score=0.9,
-        stroke_type="双手挥拍",
-        racket_confidence=0.5,
-    )
-    forehand = VisualEvent(
-        timestamp=1.60,
-        confidence=0.9,
-        motion_score=0.9,
-        global_motion=0.0,
-        arm_motion_score=0.9,
-        stroke_type="右手单手挥拍",
-        racket_confidence=0.5,
-    )
-
-    matched_backhand = fuse_events([_audio(1.0)], [backhand], AnalysisConfig())
-    unmatched_forehand = fuse_events([_audio(1.0)], [forehand], AnalysisConfig())
-
-    assert len(matched_backhand) == 1
-    assert matched_backhand[0].reason == "音画共同确认近端击球"
-    assert len(unmatched_forehand) == 2
-
-
 def test_ball_hit_sound_wins_over_earlier_footstep_near_same_swing() -> None:
     events = fuse_events(
         [
@@ -192,8 +164,109 @@ def test_build_rally_segments_uses_support_events_to_keep_confirmed_rally_connec
 
     assert len(segments) == 1
     assert segments[0].active_start == 15.0
-    assert segments[0].active_end == 25.0
+    assert segments[0].active_end == 28.0
     assert segments[0].event_count == 3
+
+
+def test_confirmed_rally_keeps_trailing_support_until_real_silence() -> None:
+    events = [
+        FusedEvent(1.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(4.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(7.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(10.0, 0.7, 0.0, 0.28, "漏检后的回球声", audio_impact_score=0.7),
+        FusedEvent(
+            13.0,
+            0.4,
+            0.7,
+            0.55,
+            "未达到最终击球阈值的球拍动作",
+            visual_arm_motion_score=0.55,
+            audio_impact_score=0.5,
+            visual_racket_confidence=0.5,
+        ),
+    ]
+
+    segments = build_rally_segments(
+        events,
+        30.0,
+        AnalysisConfig(min_rally_duration=6.0),
+    )
+
+    assert len(segments) == 1
+    assert segments[0].active_end == 13.0
+    assert segments[0].output_end == 16.0
+
+
+def test_clean_support_chain_bridges_multiple_missed_hits_in_long_rally() -> None:
+    events = [
+        FusedEvent(1.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(4.0, 0.9, 0.9, 0.95, "确认击球"),
+        *[
+            FusedEvent(
+                float(timestamp),
+                0.6,
+                0.0,
+                0.28,
+                "连续回球声",
+                audio_impact_score=0.6,
+            )
+            for timestamp in (7, 10, 13)
+        ],
+        FusedEvent(16.0, 0.9, 0.9, 0.95, "再次确认击球"),
+    ]
+
+    segments = build_rally_segments(events, 30.0, AnalysisConfig())
+
+    assert len(segments) == 1
+    assert segments[0].active_start == 1.0
+    assert segments[0].active_end == 16.0
+
+
+def test_low_impact_footsteps_do_not_extend_finished_rally() -> None:
+    events = [
+        FusedEvent(1.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(4.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(7.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(9.0, 0.9, 0.0, 0.28, "踏地声", audio_impact_score=0.1),
+        FusedEvent(11.0, 0.9, 0.0, 0.28, "走路声", audio_impact_score=0.1),
+    ]
+
+    segments = build_rally_segments(
+        events,
+        30.0,
+        AnalysisConfig(min_rally_duration=6.0),
+    )
+
+    assert len(segments) == 1
+    assert segments[0].active_end == 7.0
+
+
+def test_trailing_support_has_a_ten_second_safety_cap() -> None:
+    events = [
+        FusedEvent(1.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(4.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(7.0, 0.9, 0.9, 0.95, "确认击球"),
+        *[
+            FusedEvent(
+                float(timestamp),
+                0.7,
+                0.0,
+                0.28,
+                "片尾声音支撑",
+                audio_impact_score=0.7,
+            )
+            for timestamp in (10, 13, 16, 19)
+        ],
+    ]
+
+    segments = build_rally_segments(
+        events,
+        30.0,
+        AnalysisConfig(min_rally_duration=6.0),
+    )
+
+    assert len(segments) == 1
+    assert segments[0].active_end == 16.0
 
 
 def test_midcourt_racket_action_bridges_occasional_missed_hit() -> None:

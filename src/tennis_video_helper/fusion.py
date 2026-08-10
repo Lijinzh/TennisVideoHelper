@@ -13,7 +13,6 @@ from tennis_video_helper.models import (
 )
 
 VISUAL_MATCH_WINDOW = 0.45
-DOUBLE_HANDED_VISUAL_MATCH_WINDOW = 0.70
 VISUAL_CONFIRMATION_THRESHOLD = 0.30
 MAX_VISUAL_ANCHOR_GAP_FACTOR = 2.5
 STRONG_SWING_ARM_MOTION = 0.85
@@ -21,6 +20,9 @@ SUPPORTED_SWING_ARM_MOTION = 0.65
 MIN_CONFIRMED_HIT_AUDIO_CONFIDENCE = 0.25
 STRONG_AUDIO_IMPACT_SCORE = 0.60
 STRONG_AUDIO_CONFIDENCE = 0.55
+CONTINUATION_AUDIO_IMPACT_SCORE = 0.30
+CONTINUATION_VISUAL_ARM_MOTION = 0.50
+MAX_TRAILING_CONTINUATION_SECONDS = 10.0
 
 
 def fuse_events(
@@ -135,7 +137,11 @@ def build_rally_segments(
         if len(group) < config.min_confirmed_hits:
             continue
         active_start = group[0].timestamp
-        active_end = group[-1].timestamp
+        active_end = _extend_confirmed_rally_end(
+            group[-1].timestamp,
+            ordered_events,
+            config,
+        )
         active_duration = active_end - active_start
         if active_duration < config.min_rally_duration:
             continue
@@ -194,14 +200,9 @@ def _match_audio_and_visual_events(
     for audio_index, audio_event in enumerate(audio_events):
         for visual_index, visual_event in enumerate(visual_events):
             distance = abs(audio_event.timestamp - visual_event.timestamp)
-            match_window = (
-                DOUBLE_HANDED_VISUAL_MATCH_WINDOW
-                if visual_event.stroke_type.startswith("双手")
-                else VISUAL_MATCH_WINDOW
-            )
-            if distance > match_window:
+            if distance > VISUAL_MATCH_WINDOW:
                 continue
-            proximity = 1.0 - distance / match_window
+            proximity = 1.0 - distance / VISUAL_MATCH_WINDOW
             score = (
                 0.60 * audio_event.impact_score
                 + 0.25 * audio_event.confidence
@@ -235,24 +236,57 @@ def _visual_anchors_connected(
     if gap > bridge_gap_limit * MAX_VISUAL_ANCHOR_GAP_FACTOR:
         return False
 
-    # 允许底线向中场移动时存在一次漏检：对手回球声，或已经确认球拍的
-    # 强骨架动作，都可以桥接两次最终确认击球；只有支撑事件不能独立成段。
+    # 回合一旦有最终击球锚点，连续出现的声音/球拍动作可桥接多次漏检；
+    # 支撑事件本身仍不能独立启动一个回合。
     bridge_times = [previous.timestamp]
     bridge_times.extend(
         event.timestamp
         for event in events
         if previous.timestamp < event.timestamp < current.timestamp
-        and (
-            event.audio_confidence >= 0.25
-            or (
-                event.visual_confidence >= VISUAL_CONFIRMATION_THRESHOLD
-                and event.visual_arm_motion_score >= SUPPORTED_SWING_ARM_MOTION
-                and event.visual_racket_confidence >= 0.12
-            )
-        )
+        and _is_rally_continuation_event(event)
     )
     bridge_times.append(current.timestamp)
     return len(bridge_times) > 2 and all(
         right - left <= bridge_gap_limit
         for left, right in zip(bridge_times, bridge_times[1:])
     )
+
+
+def _extend_confirmed_rally_end(
+    confirmed_end: float,
+    events: list[FusedEvent],
+    config: AnalysisConfig,
+) -> float:
+    """已成立的回合继续吸收尾部支撑，直到真正出现持续静默。"""
+
+    continuation_end = confirmed_end
+    gap_limit = config.end_silence + config.merge_gap
+    for event in events:
+        if event.timestamp <= confirmed_end:
+            continue
+        if event.timestamp - confirmed_end > MAX_TRAILING_CONTINUATION_SECONDS:
+            break
+        if event.timestamp - continuation_end > gap_limit:
+            break
+        if is_confirmed_hit(event, config):
+            break
+        if _is_rally_continuation_event(event, allow_visual=False):
+            continuation_end = event.timestamp
+    return continuation_end
+
+
+def _is_rally_continuation_event(
+    event: FusedEvent,
+    *,
+    allow_visual: bool = True,
+) -> bool:
+    audio_support = (
+        event.audio_confidence >= MIN_CONFIRMED_HIT_AUDIO_CONFIDENCE
+        and event.audio_impact_score >= CONTINUATION_AUDIO_IMPACT_SCORE
+    )
+    visual_support = allow_visual and (
+        event.visual_confidence >= VISUAL_CONFIRMATION_THRESHOLD
+        and event.visual_arm_motion_score >= CONTINUATION_VISUAL_ARM_MOTION
+        and event.visual_racket_confidence >= 0.12
+    )
+    return audio_support or visual_support

@@ -9,6 +9,7 @@ from tennis_video_helper.vision import (
     PoseStrokeDetector,
     RacketCandidate,
     _racket_confirmation_score,
+    _select_racket_candidates,
     analyze_video,
     estimate_global_motion,
     is_ball_pickup_pose,
@@ -47,17 +48,6 @@ def _pickup_pose(*, wrist_shift: float = 0.0) -> np.ndarray:
     keypoints[8, :2] = [96, 83]
     keypoints[9, :2] = [70 - wrist_shift, 112]
     keypoints[10, :2] = [90 + wrist_shift, 112]
-    return keypoints
-
-
-def _double_backhand_pose(*, wrist_shift: float = 30.0) -> np.ndarray:
-    keypoints = _pose()
-    keypoints[7, 0] -= wrist_shift * 0.55
-    keypoints[8, 0] -= wrist_shift * 0.55
-    keypoints[9, 0] -= wrist_shift
-    keypoints[10, 0] -= wrist_shift
-    keypoints[5, 1] -= 3.0
-    keypoints[6, 1] += 3.0
     return keypoints
 
 
@@ -113,27 +103,6 @@ def test_pose_stroke_detector_requires_upright_swing_trajectory() -> None:
     assert event is not None
     assert event.posture_score > 0.8
     assert event.arm_motion_score > event.leg_motion_score
-
-
-def test_pose_stroke_detector_scores_compact_two_handed_backhand_jointly() -> None:
-    detector = PoseStrokeDetector(SimpleNamespace(visual_sensitivity=1.0))
-
-    assert detector.observe(0.0, _pose(), 0.0) is None
-    event = detector.observe(0.2, _double_backhand_pose(), 0.0)
-
-    assert event is not None
-    assert event.stroke_type == "双手挥拍"
-    assert event.arm_motion_score >= 0.85
-
-
-def test_opposing_single_arm_motion_is_not_labeled_two_handed() -> None:
-    detector = PoseStrokeDetector(SimpleNamespace(visual_sensitivity=1.0))
-
-    assert detector.observe(0.0, _pose(), 0.0) is None
-    event = detector.observe(0.2, _pose(wrist_shift=30), 0.0)
-
-    assert event is not None
-    assert event.stroke_type != "双手挥拍"
 
 
 def test_pose_stroke_detector_rejects_pickup_even_when_arms_move() -> None:
@@ -194,6 +163,30 @@ def test_racket_confirmation_requires_detection_near_moving_wrist() -> None:
 
     assert _racket_confirmation_score(candidate, [near]) == 0.6
     assert _racket_confirmation_score(candidate, [far]) == 0.0
+
+
+def test_racket_candidates_keep_two_best_frames_before_object_inference() -> None:
+    frame = np.zeros((120, 160, 3), dtype=np.uint8)
+    candidates = [
+        RacketCandidate(
+            event=VisualEvent(timestamp, confidence, confidence, 0.0),
+            frame=frame,
+            wrist_points=(np.array([80.0, 60.0], dtype=np.float32),),
+            person_height=100.0,
+            frame_index=0,
+        )
+        for timestamp, confidence in (
+            (1.0, 0.5),
+            (1.2, 0.9),
+            (1.4, 0.7),
+            (2.2, 0.8),
+        )
+    ]
+
+    selected = _select_racket_candidates(candidates)
+
+    assert len(selected) == 3
+    assert [candidate.event.timestamp for candidate in selected] == [1.2, 1.4, 2.2]
 
 
 def test_estimate_global_motion_detects_shared_frame_translation() -> None:
