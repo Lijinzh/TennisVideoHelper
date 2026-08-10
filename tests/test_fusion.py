@@ -168,15 +168,64 @@ def test_build_rally_segments_uses_support_events_to_keep_confirmed_rally_connec
     assert segments[0].event_count == 3
 
 
+def test_midcourt_racket_action_bridges_occasional_missed_hit() -> None:
+    events = [
+        FusedEvent(1.0, 0.9, 0.9, 0.95, "底线确认击球"),
+        FusedEvent(4.0, 0.8, 0.9, 0.92, "底线确认击球"),
+        FusedEvent(
+            7.5,
+            0.0,
+            0.9,
+            0.75,
+            "移动到中场时声音漏检的双反",
+            visual_arm_motion_score=0.9,
+            visual_stroke_type="双手挥拍",
+            audio_impact_score=0.0,
+            visual_racket_confidence=0.5,
+        ),
+        FusedEvent(11.0, 0.9, 0.9, 0.95, "中场确认击球"),
+    ]
+
+    segments = build_rally_segments(events, 20.0, AnalysisConfig())
+
+    assert len(segments) == 1
+    assert segments[0].active_start == 1.0
+    assert segments[0].active_end == 11.0
+
+
+def test_long_gap_without_audio_or_racket_support_still_splits_rally() -> None:
+    events = [
+        FusedEvent(1.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(4.0, 0.9, 0.9, 0.95, "确认击球"),
+        FusedEvent(11.0, 0.9, 0.9, 0.95, "下一段确认击球"),
+    ]
+
+    assert build_rally_segments(events, 20.0, AnalysisConfig()) == []
+
+
 def test_build_rally_segments_keeps_joint_evidence_across_slow_return_gaps() -> None:
     events = [
         FusedEvent(206.3, 0.7, 0.2, 0.46, "音画支撑"),
         FusedEvent(207.8, 0.8, 0.6, 0.80, "强确认"),
-        FusedEvent(210.2, 0.0, 1.0, 0.45, "动作支撑"),
+        FusedEvent(
+            210.2,
+            0.0,
+            1.0,
+            0.45,
+            "动作支撑",
+            visual_racket_confidence=0.0,
+        ),
         FusedEvent(213.7, 0.6, 0.3, 0.50, "音画支撑"),
         FusedEvent(215.1, 0.5, 1.0, 0.75, "强确认"),
         FusedEvent(216.6, 0.7, 0.5, 0.70, "强确认"),
-        FusedEvent(218.9, 0.0, 1.0, 0.45, "动作支撑"),
+        FusedEvent(
+            218.9,
+            0.0,
+            1.0,
+            0.45,
+            "动作支撑",
+            visual_racket_confidence=0.0,
+        ),
         FusedEvent(220.6, 0.5, 0.2, 0.50, "音画支撑"),
         FusedEvent(222.1, 1.0, 1.0, 0.95, "强确认"),
         FusedEvent(223.0, 0.6, 0.5, 0.65, "强确认"),

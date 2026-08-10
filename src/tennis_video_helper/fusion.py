@@ -223,21 +223,29 @@ def _visual_anchors_connected(
     config: AnalysisConfig,
 ) -> bool:
     gap = current.timestamp - previous.timestamp
-    if gap <= config.end_silence:
+    bridge_gap_limit = config.end_silence + config.merge_gap
+    if gap <= bridge_gap_limit:
         return True
-    if gap > config.end_silence * MAX_VISUAL_ANCHOR_GAP_FACTOR:
+    if gap > bridge_gap_limit * MAX_VISUAL_ANCHOR_GAP_FACTOR:
         return False
 
-    # 允许画面中的本方球员两次挥拍之间存在对手回球声，但两端必须都有骨架动作。
+    # 允许底线向中场移动时存在一次漏检：对手回球声，或已经确认球拍的
+    # 强骨架动作，都可以桥接两次最终确认击球；只有支撑事件不能独立成段。
     bridge_times = [previous.timestamp]
     bridge_times.extend(
         event.timestamp
         for event in events
         if previous.timestamp < event.timestamp < current.timestamp
-        and event.audio_confidence >= 0.25
+        and (
+            event.audio_confidence >= 0.25
+            or (
+                event.visual_confidence >= VISUAL_CONFIRMATION_THRESHOLD
+                and event.visual_arm_motion_score >= SUPPORTED_SWING_ARM_MOTION
+                and event.visual_racket_confidence >= 0.12
+            )
+        )
     )
     bridge_times.append(current.timestamp)
-    bridge_gap_limit = config.end_silence + config.merge_gap
     return len(bridge_times) > 2 and all(
         right - left <= bridge_gap_limit
         for left, right in zip(bridge_times, bridge_times[1:])

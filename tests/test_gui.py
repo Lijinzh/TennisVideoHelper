@@ -4,8 +4,9 @@ import time
 
 import pytest
 from PySide6.QtCore import QProcess, Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QSizePolicy
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -63,6 +64,7 @@ def test_build_analyze_arguments_includes_paths_and_parameters() -> None:
     assert str(values.input_path) in arguments
     assert str(values.output_path) in arguments
     assert arguments[arguments.index("--min-rally-duration") + 1] == "15"
+    assert arguments[arguments.index("--min-confirmed-hits") + 1] == "3"
     assert arguments[arguments.index("--analysis-fps") + 1] == "10"
     assert arguments[arguments.index("--backend") + 1] == "auto"
     assert arguments[arguments.index("--precision") + 1] == "fp16"
@@ -215,6 +217,7 @@ def test_parameter_spin_boxes_keep_text_area_visible() -> None:
 
     for control in (
         window.min_rally,
+        window.min_confirmed_hits,
         window.pre_roll,
         window.post_roll,
         window.end_silence,
@@ -325,6 +328,12 @@ def test_parameter_tiles_and_large_buttons_do_not_overlap() -> None:
     assert window.min_rally._up_button.width() >= 28
     assert window.min_rally._up_button.height() >= 18
     assert window.min_rally._down_button.width() >= 28
+    assert isinstance(
+        window.playback_rate_control,
+        gui_module.LargeArrowDoubleSpinBox,
+    )
+    assert window.playback_rate_control._up_button.width() >= 28
+    assert window.playback_rate_control._down_button.height() >= 18
     assert window.min_rally._down_button.height() >= 18
     original_value = window.min_rally.value()
     QTest.mouseClick(window.min_rally._up_button, Qt.MouseButton.LeftButton)
@@ -473,6 +482,7 @@ def test_review_protocol_line_is_parsed() -> None:
 
 def test_review_session_populates_selectable_candidates_and_hit_timeline(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     app = QApplication.instance() or QApplication([])
     source = tmp_path / "source.mp4"
@@ -516,6 +526,9 @@ def test_review_session_populates_selectable_candidates_and_hit_timeline(
         visual_events=(),
         fused_events=(),
     )
+    cover = QPixmap(32, 18)
+    cover.fill(Qt.GlobalColor.green)
+    monkeypatch.setattr(gui_module, "_video_thumbnail", lambda _path: cover)
     window = MainWindow()
     window._set_review_session(
         ReviewSession(tmp_path / "review", True, (video,))
@@ -524,9 +537,22 @@ def test_review_session_populates_selectable_candidates_and_hit_timeline(
 
     assert window.candidate_list.count() == 1
     assert window.candidate_list.item(0).checkState() == Qt.CheckState.Checked
+    assert (
+        window.candidate_list.item(0).data(gui_module.CANDIDATE_VIEWED_ROLE)
+        is True
+    )
+    assert window.candidate_list.item(0).text().startswith("已看 · ")
     assert window.selected_count_label.text() == "已选 1/1 段"
     assert window.hit_timeline._hit_positions_ms == (2_000, 8_000)
     assert window.publish_button.isEnabled() is True
+    assert window.preview_stack.currentWidget() is window.preview
+    assert window.preview._source_pixmap.isNull() is False
+
+    window._preview_state_changed(
+        gui_module.QMediaPlayer.PlaybackState.PlayingState
+    )
+    assert window.preview_stack.currentWidget() is window.video_widget
+    window.preview_stack.setCurrentWidget(window.preview)
 
     window.candidate_list.item(0).setCheckState(Qt.CheckState.Unchecked)
     second_clip_path = clip_path.with_name("rally_002.mp4")
@@ -556,11 +582,127 @@ def test_review_session_populates_selectable_candidates_and_hit_timeline(
     assert window.candidate_list.count() == 2
     assert window.candidate_list.item(0).checkState() == Qt.CheckState.Unchecked
     assert window.candidate_list.item(1).checkState() == Qt.CheckState.Checked
+    assert (
+        window.candidate_list.item(1).data(gui_module.CANDIDATE_VIEWED_ROLE)
+        is False
+    )
     assert window.candidate_list.currentRow() == 0
     assert window._current_candidate_id == "1:1"
     assert window.selected_count_label.text() == "已选 1/2 段"
 
+    window.candidate_list.setCurrentRow(1)
+    app.processEvents()
+    assert (
+        window.candidate_list.item(1).data(gui_module.CANDIDATE_VIEWED_ROLE)
+        is True
+    )
+    assert window.candidate_list.item(1).text().startswith("已看 · ")
+
     window._review_session = None
+    window.close()
+    app.processEvents()
+
+
+def test_video_playback_widget_cannot_expand_preview_layout() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    window.resize(1100, 760)
+    window.show()
+    app.processEvents()
+
+    window_size = window.size()
+    preview_size = window.preview_stack.size()
+    scrollbar_maximum = window.page_scroll.verticalScrollBar().maximum()
+
+    window._preview_state_changed(
+        gui_module.QMediaPlayer.PlaybackState.PlayingState
+    )
+    app.processEvents()
+
+    assert window.video_widget.sizeHint() == gui_module.QSize(0, 0)
+    assert window.video_widget.minimumSizeHint() == gui_module.QSize(0, 0)
+    assert window.video_widget.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Ignored
+    assert window.video_widget.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Ignored
+    assert window.size() == window_size
+    assert window.preview_stack.size() == preview_size
+    assert window.page_scroll.verticalScrollBar().maximum() == scrollbar_maximum
+
+    window.close()
+    app.processEvents()
+
+
+def test_playback_rate_and_input_path_are_restored_on_next_launch(
+    monkeypatch,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    stored: dict[str, object] = {}
+
+    class FakeSettings:
+        def value(self, key: str, default=None):
+            return stored.get(key, default)
+
+        def setValue(self, key: str, value) -> None:  # noqa: N802 - Qt API
+            stored[key] = value
+
+        def sync(self) -> None:
+            pass
+
+    monkeypatch.setattr(gui_module, "_application_settings", FakeSettings)
+    window = MainWindow()
+
+    class FakePlayer:
+        def __init__(self) -> None:
+            self.rates: list[float] = []
+
+        def setPlaybackRate(self, rate: float) -> None:  # noqa: N802 - Qt API
+            self.rates.append(rate)
+
+    fake_player = FakePlayer()
+    original_player = window.media_player
+    window.media_player = fake_player
+
+    assert window.playback_rate_control.minimum() == 0.25
+    assert window.playback_rate_control.maximum() == 4.0
+    window.playback_rate_control.setValue(2.75)
+    assert fake_player.rates == [2.75]
+    window.input_edit.setText("D:/tennis-videos")
+    window._input_editing_finished()
+    assert stored["preview/playback_rate"] == 2.75
+    assert stored["paths/input"] == "D:/tennis-videos"
+
+    window.media_player = original_player
+    window.close()
+    app.processEvents()
+
+    restored = MainWindow()
+    restored.show()
+    app.processEvents()
+    assert restored.playback_rate_control.value() == 2.75
+    assert restored.media_player.playbackRate() == 2.75
+    assert restored.input_edit.text() == "D:/tennis-videos"
+    assert (
+        restored.playback_rate_control.geometry().x()
+        > restored.preview_time_label.geometry().x()
+    )
+
+    restored.close()
+    app.processEvents()
+
+
+def test_window_theme_can_switch_between_system_light_and_dark_styles() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+
+    window._apply_theme(False)
+    assert window._dark_theme is False
+    assert window.styleSheet() == gui_module.LIGHT_STYLE_SHEET
+    assert "background: #f3f5f7" in window.styleSheet()
+
+    window._apply_theme(True)
+    assert window._dark_theme is True
+    assert window.styleSheet() == gui_module.DARK_STYLE_SHEET
+    assert "background: #0a0b0d" in window.styleSheet()
+
     window.close()
     app.processEvents()
 

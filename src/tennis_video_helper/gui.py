@@ -19,6 +19,7 @@ from PySide6.QtCore import (
     QProcess,
     QProcessEnvironment,
     QRectF,
+    QSettings,
     QSize,
     Qt,
     QTimer,
@@ -27,9 +28,11 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QAction,
+    QBrush,
     QColor,
     QDesktopServices,
     QFont,
+    QGuiApplication,
     QIcon,
     QImage,
     QPainter,
@@ -88,6 +91,36 @@ VIDEO_FILE_FILTER = (
     + ");;所有文件 (*)"
 )
 WINDOWS_APP_USER_MODEL_ID = "TennisVideoHelper.Desktop.0.1"
+SETTINGS_ORGANIZATION = "TennisVideoHelper"
+SETTINGS_APPLICATION = "TennisVideoHelper"
+CANDIDATE_VIEWED_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+
+
+def _application_settings() -> QSettings:
+    return QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+
+
+def _system_uses_dark_theme() -> bool:
+    """读取 Qt 的系统配色；Windows 上为未知时再读取应用主题注册表值。"""
+
+    app = QGuiApplication.instance()
+    if app is not None:
+        scheme = app.styleHints().colorScheme()
+        if scheme == Qt.ColorScheme.Dark:
+            return True
+        if scheme == Qt.ColorScheme.Light:
+            return False
+    if os.name == "nt":
+        registry = QSettings(
+            r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion"
+            r"\Themes\Personalize",
+            QSettings.Format.NativeFormat,
+        )
+        try:
+            return int(registry.value("AppsUseLightTheme", 1)) == 0
+        except (TypeError, ValueError):
+            pass
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +137,7 @@ class AnalysisFormValues:
     audio_sensitivity: float
     visual_sensitivity: float
     limit_duration: float | None
+    min_confirmed_hits: int = 3
     inference_backend: str = "auto"
     inference_precision: str = "fp16"
     inference_batch_size: int = 16
@@ -124,6 +158,8 @@ def build_analyze_arguments(values: AnalysisFormValues) -> list[str]:
         str(values.output_path),
         "--min-rally-duration",
         _number(values.min_rally_duration),
+        "--min-confirmed-hits",
+        str(values.min_confirmed_hits),
         "--pre-roll",
         _number(values.pre_roll),
         "--post-roll",
@@ -420,6 +456,21 @@ class PreviewLabel(QLabel):
         painter.end()
 
 
+class ContainedVideoWidget(QVideoWidget):
+    """始终服从预览容器尺寸，不用竖屏视频原始分辨率撑开布局。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setMinimumSize(0, 0)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        return QSize(0, 0)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        return QSize(0, 0)
+
+
 class HitTimeline(QWidget):
     """显示播放进度与模型识别击球点的可点击时间线。"""
 
@@ -455,9 +506,10 @@ class HitTimeline(QWidget):
         super().paintEvent(event)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        dark = bool(getattr(self.window(), "_dark_theme", True))
         track = QRectF(18, self.height() / 2 - 1.5, max(1, self.width() - 36), 3)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#343940"))
+        painter.setBrush(QColor("#343940" if dark else "#cbd1d8"))
         painter.drawRoundedRect(track, 1.5, 1.5)
 
         progress_fraction = self._fraction(self._position_ms)
@@ -483,7 +535,7 @@ class HitTimeline(QWidget):
                 )
 
         playhead_x = track.x() + track.width() * progress_fraction
-        painter.setPen(QPen(QColor("#ffffff"), 2))
+        painter.setPen(QPen(QColor("#ffffff" if dark else "#26313a"), 2))
         painter.drawLine(
             int(playhead_x),
             int(track.center().y() - 13),
@@ -533,6 +585,10 @@ class _LargeArrowButtons:
             button_width,
             self.height() - upper_height,
         )
+
+    def set_arrow_color(self, color: str) -> None:
+        self._up_button.setIcon(_make_arrow_icon(up=True, color=color))
+        self._down_button.setIcon(_make_arrow_icon(up=False, color=color))
 
 
 class LargeArrowDoubleSpinBox(_LargeArrowButtons, QDoubleSpinBox):
@@ -589,10 +645,11 @@ class ParameterTile(QFrame):
 
 
 class MainWindow(QMainWindow):
-    """磨砂黑风格的主窗口。"""
+    """跟随系统明暗主题的主窗口。"""
 
     def __init__(self) -> None:
         super().__init__()
+        self.settings = _application_settings()
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.process.readyReadStandardOutput.connect(self._read_process_output)
@@ -613,6 +670,7 @@ class MainWindow(QMainWindow):
         self._review_candidates: dict[
             str, tuple[ReviewVideoCandidate, ReviewClipCandidate]
         ] = {}
+        self._viewed_candidate_ids: set[str] = set()
         self._current_candidate_id: str | None = None
         self._loading_candidates = False
         self._last_worker_message = ""
@@ -635,7 +693,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1100, 760)
         self.resize(1440, 920)
         self.setWindowIcon(_make_icon())
-        self.setStyleSheet(STYLE_SHEET)
+        self._dark_theme = _system_uses_dark_theme()
+        self.setStyleSheet(DARK_STYLE_SHEET if self._dark_theme else LIGHT_STYLE_SHEET)
         self._build_menu_bar()
 
         self.page_scroll = QScrollArea()
@@ -660,11 +719,18 @@ class MainWindow(QMainWindow):
         root.addWidget(self.parameter_card, 1)
         self.parameter_card.setVisible(False)
 
+        style_hints = QGuiApplication.styleHints()
+        if hasattr(style_hints, "colorSchemeChanged"):
+            style_hints.colorSchemeChanged.connect(self._system_theme_changed)
+        self._refresh_theme_dependent_widgets()
+
         self._load_saved_optimization()
         self._set_running(False)
         QTimer.singleShot(0, self._refresh_input_preview)
         QTimer.singleShot(0, self._show_initial_view)
-        QTimer.singleShot(0, lambda: _apply_windows_dark_frame(self))
+        QTimer.singleShot(
+            0, lambda: _apply_windows_frame_theme(self, dark=self._dark_theme)
+        )
 
     def _show_initial_view(self) -> None:
         """让首次打开时停留在顶部主工作区。"""
@@ -754,12 +820,14 @@ class MainWindow(QMainWindow):
 
         default_input = Path.cwd() / "网球"
         default_output = Path.cwd() / "精选输出"
+        saved_input = str(self.settings.value("paths/input", "") or "").strip()
         layout.addWidget(QLabel("输入"))
         self.input_edit = QLineEdit(
-            str(default_input) if default_input.exists() else ""
+            saved_input
+            or (str(default_input) if default_input.exists() else "")
         )
         self.input_edit.setPlaceholderText("在“文件”菜单选择视频或文件夹")
-        self.input_edit.editingFinished.connect(self._refresh_input_preview)
+        self.input_edit.editingFinished.connect(self._input_editing_finished)
         layout.addWidget(self.input_edit, 2)
         layout.addWidget(QLabel("输出"))
         self.output_edit = QLineEdit(str(default_output))
@@ -850,9 +918,13 @@ class MainWindow(QMainWindow):
 
         self.preview_stack = QStackedWidget()
         self.preview_stack.setObjectName("previewStack")
+        self.preview_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
         self.preview = PreviewLabel()
         self.preview_stack.addWidget(self.preview)
-        self.video_widget = QVideoWidget()
+        self.video_widget = ContainedVideoWidget()
         self.video_widget.setObjectName("videoWidget")
         self.video_widget.setAspectRatioMode(Qt.AspectRatioMode.KeepAspectRatio)
         self.media_player.setVideoOutput(self.video_widget)
@@ -897,6 +969,26 @@ class MainWindow(QMainWindow):
         self.play_button.clicked.connect(self._toggle_preview_playback)
         self.next_button = QPushButton("下一段")
         self.next_button.clicked.connect(self._next_candidate)
+        self.playback_rate_control = LargeArrowDoubleSpinBox()
+        self.playback_rate_control.setObjectName("playbackRateControl")
+        self.playback_rate_control.setToolTip("输入 0.25× 至 4.00× 的候选预览速度")
+        self.playback_rate_control.setRange(0.25, 4.0)
+        self.playback_rate_control.setDecimals(2)
+        self.playback_rate_control.setSingleStep(0.25)
+        self.playback_rate_control.setSuffix(" ×")
+        self.playback_rate_control.setMinimumWidth(102)
+        self.playback_rate_control.setMinimumHeight(40)
+        try:
+            saved_rate = float(self.settings.value("preview/playback_rate", 1.0))
+        except (TypeError, ValueError):
+            saved_rate = 1.0
+        self.playback_rate_control.setValue(min(4.0, max(0.25, saved_rate)))
+        self.media_player.setPlaybackRate(self.playback_rate_control.value())
+        self.playback_rate_control.valueChanged.connect(
+            self._set_preview_playback_rate
+        )
+        self.playback_rate_label = QLabel("倍速")
+        self.playback_rate_label.setObjectName("mutedLabel")
         self.preview_time_label = QLabel("00:00 / 00:00")
         self.preview_time_label.setObjectName("metricValue")
         self.hit_count_label = QLabel("击球点：0")
@@ -907,6 +999,8 @@ class MainWindow(QMainWindow):
         playback_row.addStretch()
         playback_row.addWidget(self.hit_count_label)
         playback_row.addWidget(self.preview_time_label)
+        playback_row.addWidget(self.playback_rate_label)
+        playback_row.addWidget(self.playback_rate_control)
         preview_column.addLayout(playback_row)
         layout.addWidget(preview_panel, 1)
 
@@ -1023,6 +1117,7 @@ class MainWindow(QMainWindow):
         grid.setVerticalSpacing(8)
 
         self.min_rally = _double_spin(10.0, 1.0, 600.0, " 秒")
+        self.min_confirmed_hits = _int_spin(3, 1, 50, " 次")
         self.pre_roll = _double_spin(2.0, 0.0, 30.0, " 秒")
         self.post_roll = _double_spin(3.0, 0.0, 30.0, " 秒")
         self.end_silence = _double_spin(3.5, 0.1, 30.0, " 秒")
@@ -1045,6 +1140,11 @@ class MainWindow(QMainWindow):
 
         specs = [
             ("最短回合", "调大：只留更长回合；调小：短回合会增多。", self.min_rally),
+            (
+                "最少击球",
+                "默认与最短时长同时满足；设为 1 可主要按时长筛选。",
+                self.min_confirmed_hits,
+            ),
             ("前置保留", "调大：准备动作更完整；调小：片段更紧凑。", self.pre_roll),
             ("后置保留", "调大：收拍反应更完整；调小：结束更利落。", self.post_roll),
             ("结束静默", "调大：不易截断慢回球；调小：切分更敏感。", self.end_silence),
@@ -1092,7 +1192,9 @@ class MainWindow(QMainWindow):
             self._update_export_quality_hint
         )
         self._update_export_quality_hint(False)
-        grid.addWidget(limit_box, 2, 0, 1, 5)
+        parameter_columns = 5
+        limit_row = (len(specs) + parameter_columns - 1) // parameter_columns
+        grid.addWidget(limit_box, limit_row, 0, 1, parameter_columns)
 
         layout.addLayout(grid)
         self._update_analysis_scope()
@@ -1119,6 +1221,7 @@ class MainWindow(QMainWindow):
             input_path=input_path,
             output_path=output_path,
             min_rally_duration=self.min_rally.value(),
+            min_confirmed_hits=self.min_confirmed_hits.value(),
             pre_roll=self.pre_roll.value(),
             post_roll=self.post_roll.value(),
             end_silence=self.end_silence.value(),
@@ -1147,6 +1250,7 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             QMessageBox.warning(self, "路径无效", str(exc))
             return
+        self._remember_input_path(str(values.input_path))
         if not values.input_path.exists():
             QMessageBox.warning(self, "路径无效", "请选择存在的视频或文件夹。")
             return
@@ -1548,6 +1652,7 @@ class MainWindow(QMainWindow):
             self.candidate_list.clear()
             self._loading_candidates = False
             self._review_candidates.clear()
+            self._viewed_candidate_ids.clear()
             self._current_candidate_id = None
 
         existing_ids = set(self._review_candidates)
@@ -1559,10 +1664,10 @@ class MainWindow(QMainWindow):
                 if clip.id in existing_ids:
                     continue
                 item = QListWidgetItem(
-                    f"片段 {clip.index:03d} · {clip.duration:.1f} 秒\n"
-                    f"{video.source.name} · {len(clip.hits)} 个击球点"
+                    self._candidate_item_text(video, clip, viewed=False)
                 )
                 item.setData(Qt.ItemDataRole.UserRole, clip.id)
+                item.setData(CANDIDATE_VIEWED_ROLE, False)
                 item.setFlags(
                     item.flags()
                     | Qt.ItemFlag.ItemIsUserCheckable
@@ -1599,9 +1704,12 @@ class MainWindow(QMainWindow):
             return
         video, clip = pair
         self._current_candidate_id = candidate_id
+        self._mark_candidate_viewed(current, video, clip)
         self.media_player.stop()
         self.media_player.setSource(QUrl.fromLocalFile(str(clip.path)))
-        self.preview_stack.setCurrentWidget(self.video_widget)
+        self.media_player.setPlaybackRate(self.playback_rate_control.value())
+        self.preview.set_source_pixmap(_video_thumbnail(clip.path))
+        self.preview_stack.setCurrentWidget(self.preview)
         self.current_video_label.setText(
             f"{video.source.name} · 片段 {clip.index:03d}"
         )
@@ -1620,6 +1728,63 @@ class MainWindow(QMainWindow):
     def _candidate_check_changed(self, _item: QListWidgetItem) -> None:
         if not self._loading_candidates:
             self._update_selected_count()
+
+    @staticmethod
+    def _candidate_item_text(
+        video: ReviewVideoCandidate,
+        clip: ReviewClipCandidate,
+        *,
+        viewed: bool,
+    ) -> str:
+        prefix = "已看 · " if viewed else ""
+        return (
+            f"{prefix}片段 {clip.index:03d} · {clip.duration:.1f} 秒\n"
+            f"{video.source.name} · {len(clip.hits)} 个击球点"
+        )
+
+    def _mark_candidate_viewed(
+        self,
+        item: QListWidgetItem,
+        video: ReviewVideoCandidate,
+        clip: ReviewClipCandidate,
+    ) -> None:
+        self._viewed_candidate_ids.add(clip.id)
+        item.setData(CANDIDATE_VIEWED_ROLE, True)
+        item.setText(self._candidate_item_text(video, clip, viewed=True))
+        self._apply_candidate_item_appearance(item)
+
+    def _apply_candidate_item_appearance(self, item: QListWidgetItem) -> None:
+        viewed = bool(item.data(CANDIDATE_VIEWED_ROLE))
+        if viewed:
+            viewed_color = "#7f858d" if self._dark_theme else "#707780"
+            item.setForeground(QBrush(QColor(viewed_color)))
+            item.setToolTip(f"已查看\n{item.toolTip().removeprefix('已查看\n')}")
+        else:
+            item.setForeground(QBrush())
+
+    def _refresh_candidate_item_appearances(self) -> None:
+        for index in range(self.candidate_list.count()):
+            self._apply_candidate_item_appearance(self.candidate_list.item(index))
+
+    def _system_theme_changed(self, *_args) -> None:
+        self._apply_theme(_system_uses_dark_theme())
+
+    def _apply_theme(self, dark: bool) -> None:
+        self._dark_theme = dark
+        self.setStyleSheet(DARK_STYLE_SHEET if dark else LIGHT_STYLE_SHEET)
+        self._refresh_theme_dependent_widgets()
+        _apply_windows_frame_theme(self, dark=dark)
+
+    def _refresh_theme_dependent_widgets(self) -> None:
+        arrow_color = "#e7eaed" if self._dark_theme else "#26313a"
+        controls = [
+            *self.findChildren(LargeArrowDoubleSpinBox),
+            *self.findChildren(LargeArrowSpinBox),
+        ]
+        for control in controls:
+            control.set_arrow_color(arrow_color)
+        if hasattr(self, "candidate_list"):
+            self._refresh_candidate_item_appearances()
 
     def _update_selected_count(self) -> None:
         total = self.candidate_list.count()
@@ -1676,6 +1841,7 @@ class MainWindow(QMainWindow):
         self._review_session = None
         self._review_manifest_path = None
         self._review_candidates.clear()
+        self._viewed_candidate_ids.clear()
         self._clear_candidate_view()
         self.status_badge.setText("●  导出完成")
         self.phase_label.setText(f"已导出 {len(published.clip_paths)} 个片段")
@@ -1708,7 +1874,14 @@ class MainWindow(QMainWindow):
         if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.media_player.pause()
         else:
+            self.preview_stack.setCurrentWidget(self.video_widget)
             self.media_player.play()
+
+    def _set_preview_playback_rate(self, rate: float) -> None:
+        playback_rate = min(4.0, max(0.25, float(rate)))
+        self.media_player.setPlaybackRate(playback_rate)
+        self.settings.setValue("preview/playback_rate", playback_rate)
+        self.settings.sync()
 
     def _seek_preview(self, position_ms: int) -> None:
         if self._current_candidate_id is not None:
@@ -1726,6 +1899,8 @@ class MainWindow(QMainWindow):
             self.hit_timeline.set_duration(duration_ms)
 
     def _preview_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
+        if state == QMediaPlayer.PlaybackState.PlayingState:
+            self.preview_stack.setCurrentWidget(self.video_widget)
         self.play_button.setText(
             "暂停" if state == QMediaPlayer.PlaybackState.PlayingState else "播放"
         )
@@ -1740,6 +1915,7 @@ class MainWindow(QMainWindow):
     def _rewind_finished_preview(self) -> None:
         if self._current_candidate_id is not None:
             self.media_player.setPosition(0)
+            self.preview_stack.setCurrentWidget(self.preview)
 
     def _preview_error(self, _error, error_text: str) -> None:
         if not error_text or self._current_candidate_id is None:
@@ -1915,6 +2091,7 @@ class MainWindow(QMainWindow):
         )
         if path:
             self.input_edit.setText(path)
+            self._remember_input_path(path)
             self._refresh_input_preview()
 
     def _choose_input_folder(self) -> None:
@@ -1923,7 +2100,19 @@ class MainWindow(QMainWindow):
         )
         if path:
             self.input_edit.setText(path)
+            self._remember_input_path(path)
             self._refresh_input_preview()
+
+    def _input_editing_finished(self) -> None:
+        self._remember_input_path(self.input_edit.text())
+        self._refresh_input_preview()
+
+    def _remember_input_path(self, path: str) -> None:
+        normalized = path.strip()
+        if not normalized:
+            return
+        self.settings.setValue("paths/input", normalized)
+        self.settings.sync()
 
     def _choose_output_folder(self) -> None:
         path = QFileDialog.getExistingDirectory(
@@ -1989,6 +2178,7 @@ class MainWindow(QMainWindow):
         if self._review_session is not None:
             discard_review_session(self._review_session)
             self._review_session = None
+        self._remember_input_path(self.input_edit.text())
         event.accept()
 
 
@@ -2069,13 +2259,13 @@ def _int_spin(value: int, minimum: int, maximum: int, suffix: str) -> QSpinBox:
     return control
 
 
-def _make_arrow_icon(*, up: bool) -> QIcon:
+def _make_arrow_icon(*, up: bool, color: str = "#e7eaed") -> QIcon:
     pixmap = QPixmap(18, 12)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor("#e7eaed"))
+    painter.setBrush(QColor(color))
     if up:
         points = [(9, 2), (2, 10), (16, 10)]
     else:
@@ -2145,11 +2335,11 @@ def _set_windows_app_user_model_id() -> None:
         return
 
 
-def _apply_windows_dark_frame(window: QMainWindow) -> None:
+def _apply_windows_frame_theme(window: QMainWindow, *, dark: bool) -> None:
     if os.name != "nt":
         return
     try:
-        value = ctypes.c_int(1)
+        value = ctypes.c_int(1 if dark else 0)
         ctypes.windll.dwmapi.DwmSetWindowAttribute(  # type: ignore[attr-defined]
             int(window.winId()), 20, ctypes.byref(value), ctypes.sizeof(value)
         )
@@ -2175,7 +2365,7 @@ def main() -> None:
     raise SystemExit(app.exec())
 
 
-STYLE_SHEET = """
+DARK_STYLE_SHEET = """
 QMainWindow, QMenuBar, QMenu {
     background: #0a0b0d;
     color: #f4f5f6;
@@ -2443,6 +2633,203 @@ QProgressBar {
 QProgressBar::chunk { background: #8fcf3d; border-radius: 9px; }
 QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
 QScrollBar::handle:vertical { background: #3a3e44; border-radius: 5px; min-height: 24px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+"""
+
+
+LIGHT_STYLE_SHEET = """
+QMainWindow, QMenuBar, QMenu {
+    background: #f3f5f7;
+    color: #20262c;
+    font-family: "Segoe UI", "Microsoft YaHei UI";
+}
+QMenuBar { border-bottom: 1px solid #d6dbe1; padding: 2px 8px; }
+QMenuBar::item { padding: 6px 10px; background: transparent; }
+QMenuBar::item:selected, QMenu::item:selected { background: #e4e8ed; }
+QMenu { border: 1px solid #cbd1d8; padding: 5px; }
+QMenu::item { padding: 7px 28px 7px 12px; }
+QWidget#root {
+    background: #f3f5f7;
+    color: #20262c;
+    font-family: "Segoe UI", "Microsoft YaHei UI";
+    font-size: 13px;
+}
+QScrollArea#pageScroll { background: #f3f5f7; border: none; }
+QLabel#eyebrow { color: #527b13; font-size: 10px; font-weight: 700; letter-spacing: 2px; }
+QLabel#heroTitle { color: #151a1f; font-size: 27px; font-weight: 700; }
+QLabel#heroSubtitle { color: #69717a; font-size: 13px; }
+QLabel#statusBadge {
+    color: #466c0c;
+    background: rgba(116, 166, 43, 0.12);
+    border: 1px solid rgba(92, 137, 26, 0.34);
+    border-radius: 14px;
+    padding: 7px 12px;
+    font-weight: 600;
+}
+QFrame#card, QFrame#workbenchCard {
+    background: #ffffff;
+    border: 1px solid #d2d7dd;
+    border-radius: 15px;
+}
+QFrame#topBar {
+    background: #ffffff;
+    border: 1px solid #d2d7dd;
+    border-radius: 11px;
+}
+QFrame#reviewPanel, QFrame#previewPanel {
+    background: #ffffff;
+    border: 1px solid #d5dae0;
+    border-radius: 12px;
+}
+QFrame#analysisFeedback {
+    background: #f6faef;
+    border: 1px solid rgba(92, 137, 26, 0.40);
+    border-radius: 10px;
+}
+QLabel#analysisFeedbackTitle { color: #273020; font-weight: 700; }
+QLabel#analysisFeedbackPercent { color: #527b13; font-weight: 700; }
+QLabel#analysisFeedbackPhase { color: #64705c; font-size: 11px; }
+QLabel#analysisScope {
+    color: #43513a;
+    background: #f2f7ec;
+    border: 1px solid #ccd9bf;
+    border-radius: 8px;
+    padding: 7px 9px;
+    font-weight: 600;
+}
+QLabel#analysisScope[mode="limited"] { color: #795800; background: #fff8df; border-color: #c5a33d; }
+QListWidget#candidateList {
+    color: #252b31;
+    background: #f8f9fb;
+    border: 1px solid #cfd5dc;
+    border-radius: 9px;
+    padding: 4px;
+    outline: none;
+}
+QListWidget#candidateList::item { border-radius: 7px; padding: 9px 7px; margin: 2px; }
+QListWidget#candidateList::item:selected {
+    color: #253313;
+    background: #e7f3d4;
+    border: 1px solid #87ac51;
+}
+QVideoWidget#videoWidget, QStackedWidget#previewStack {
+    background: #111315;
+    border: 1px solid #cfd5dc;
+    border-radius: 10px;
+}
+QWidget#hitTimeline { background: #f8f9fb; border: 1px solid #d4d9df; border-radius: 10px; }
+QLabel#hitCountLabel { color: #527b13; font-weight: 700; }
+QFrame#workbenchCard { background: #ffffff; border-color: #cfd5dc; }
+QFrame#statusPanel { background: #f8f9fb; border: 1px solid #d1d7de; border-radius: 13px; }
+QLabel#videoPreview {
+    color: #6e757d;
+    background: #111315;
+    border: 1px solid #cfd5dc;
+    border-radius: 12px;
+    padding: 4px;
+}
+QLabel#workbenchTitle { color: #20262c; font-size: 15px; font-weight: 700; }
+QLabel#mutedLabel { color: #6f767e; }
+QLabel#currentVideo { color: #4f5861; font-size: 12px; }
+QLabel#percentLabel { color: #527b13; font-size: 42px; font-weight: 700; }
+QLabel#phaseLabel { color: #20262c; font-size: 16px; font-weight: 600; }
+QLabel#accelerationStatus {
+    background: #f5f7fa;
+    border: 1px solid #cfd5dc;
+    border-radius: 8px;
+    color: #59636d;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 7px 9px;
+}
+QLabel#accelerationStatus[mode="enabled"] { background: #edf7df; border-color: #87ac51; color: #466c0c; }
+QLabel#accelerationStatus[mode="partial"] { background: #fff8df; border-color: #c5a33d; color: #795800; }
+QLabel#accelerationStatus[mode="cpu"] { background: #fff0f0; border-color: #c77878; color: #9d3131; }
+QLabel#metricLabel { color: #707780; font-size: 11px; }
+QLabel#metricValue {
+    color: #252b31;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: "Cascadia Mono", "Consolas";
+}
+QLabel#taskSummary { color: #69717a; font-size: 12px; }
+QLabel#sectionTitle { color: #20262c; font-size: 14px; font-weight: 700; }
+QLabel#fieldLabel { color: #515a63; font-weight: 600; }
+QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {
+    color: #20262c;
+    background: #ffffff;
+    border: 1px solid #cbd1d8;
+    border-radius: 10px;
+    padding: 8px 10px;
+    selection-background-color: #91bc52;
+}
+QDoubleSpinBox, QSpinBox, QComboBox { padding: 4px 34px 4px 9px; }
+QDoubleSpinBox QLineEdit, QSpinBox QLineEdit {
+    color: #20262c;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+}
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus { border: 1px solid #75a435; }
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border; subcontrol-position: top right; width: 28px;
+    border-left: 1px solid #cbd1d8; border-bottom: 1px solid #d7dce2; background: #edf0f3;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border; subcontrol-position: bottom right; width: 28px;
+    border-left: 1px solid #cbd1d8; background: #edf0f3;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover { background: #dfe4e9; }
+QToolButton#spinUpButton, QToolButton#spinDownButton {
+    background: #edf0f3;
+    border: none;
+    border-left: 1px solid #cbd1d8;
+    border-radius: 0;
+    padding: 0;
+}
+QToolButton#spinUpButton { border-bottom: 1px solid #d7dce2; border-top-right-radius: 9px; }
+QToolButton#spinDownButton { border-bottom-right-radius: 9px; }
+QToolButton#spinUpButton:hover, QToolButton#spinDownButton:hover { background: #dfe4e9; }
+QComboBox::drop-down {
+    subcontrol-origin: padding; subcontrol-position: top right; width: 28px; border-left: 1px solid #cbd1d8;
+}
+QPushButton {
+    color: #283038;
+    background: #e9edf1;
+    border: 1px solid #c9cfd6;
+    border-radius: 10px;
+    padding: 8px 13px;
+    font-weight: 600;
+}
+QPushButton:hover { background: #dfe4e9; border-color: #aeb6bf; }
+QPushButton:pressed { background: #d5dbe1; }
+QPushButton:disabled { color: #9aa1a9; background: #f0f2f4; border-color: #dce0e4; }
+QPushButton#primaryButton { color: #17200c; background: #a9df51; border: 1px solid #8fc436; padding: 11px 24px; font-size: 15px; }
+QPushButton#primaryButton:hover { background: #b6e96a; }
+QPushButton#dangerButton { color: #9d3131; background: #fff0f0; border-color: #d39a9a; }
+QPushButton#navigationButton { color: #303840; background: #edf0f3; border-color: #c9cfd6; }
+QPushButton#navigationButton:hover { color: #151a1f; background: #dfe4e9; border-color: #aab2bb; }
+QFrame#parameterTile { background: #f8f9fb; border: 1px solid #d4d9df; border-radius: 12px; }
+QLabel#parameterTitle { color: #252b31; font-weight: 700; }
+QLabel#parameterNote { color: #6e757d; font-size: 10px; }
+QCheckBox { color: #30373e; spacing: 8px; }
+QCheckBox::indicator { width: 16px; height: 16px; }
+QCheckBox::indicator:unchecked { background: #ffffff; border: 1px solid #aeb5bd; border-radius: 4px; }
+QCheckBox::indicator:checked { background: #95cb43; border: 1px solid #7caf2f; border-radius: 4px; }
+QProgressBar {
+    color: #20262c;
+    background: #eef1f4;
+    border: 1px solid #cbd1d8;
+    border-radius: 10px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+}
+QProgressBar::chunk { background: #8fcf3d; border-radius: 9px; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar::handle:vertical { background: #b7bec6; border-radius: 5px; min-height: 24px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 """
 
