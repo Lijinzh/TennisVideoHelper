@@ -251,6 +251,40 @@ def test_process_batch_reports_monotonic_progress(tmp_path: Path) -> None:
     assert updates[-1].phase == "全部任务完成"
 
 
+def test_pipeline_passes_audio_candidates_to_visual_focus(tmp_path: Path) -> None:
+    source = tmp_path / "source.mp4"
+    received_focus: list[tuple[float, ...]] = []
+
+    def analyze(_path, config, _limit, _progress) -> list[VisualEvent]:
+        received_focus.append(config.visual_focus_timestamps)
+        return []
+
+    services = PipelineServices(
+        scan_videos=lambda _: [source],
+        probe_media=lambda _: _media(source),
+        extract_audio=lambda _source, target, _sample_rate: target.touch(),
+        load_audio=lambda _: (np.zeros(100, dtype=np.float32), 22_050),
+        detect_audio_events=lambda *_args: [
+            AudioEvent(3.2, 0.8, 10.0),
+            AudioEvent(7.4, 0.7, 9.0),
+        ],
+        analyze_video=analyze,
+        export_clip=lambda *_args: None,
+        verify_clip=lambda *_args: (True, None),
+        write_reports=lambda *_args: None,
+    )
+
+    result = process_batch(
+        source,
+        tmp_path / "output",
+        AnalysisConfig(),
+        services=services,
+    )
+
+    assert result.success_count == 1
+    assert received_focus == [(3.2, 7.4)]
+
+
 def test_prepare_review_batch_stages_verified_candidates_without_publishing(
     tmp_path: Path,
 ) -> None:

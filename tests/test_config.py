@@ -26,6 +26,9 @@ def test_default_config_matches_approved_design() -> None:
     assert config.require_racket_confirmation is True
     assert config.export_original_quality is False
     assert config.overwrite_existing_output is False
+    assert config.visual_focus_timestamps == ()
+    assert config.visual_focus_window == 1.0
+    assert config.visual_tracking_fps == 3.0
 
 
 @pytest.mark.parametrize(
@@ -43,6 +46,8 @@ def test_default_config_matches_approved_design() -> None:
         ("fusion_threshold", 1.1),
         ("encode_cq", 52),
         ("inference_batch_size", 0),
+        ("visual_focus_window", 0),
+        ("visual_tracking_fps", 0),
     ],
 )
 def test_config_rejects_invalid_values(field: str, value: float) -> None:
@@ -70,3 +75,8 @@ def test_config_rejects_unknown_inference_precision(value: str) -> None:
 def test_config_rejects_unknown_player_handedness() -> None:
     with pytest.raises(ValueError, match="player_handedness"):
         AnalysisConfig(player_handedness="both")
+
+
+def test_config_rejects_negative_visual_focus_timestamp() -> None:
+    with pytest.raises(ValueError, match="visual_focus_timestamps"):
+        AnalysisConfig(visual_focus_timestamps=(-0.1,))

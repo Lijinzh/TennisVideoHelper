@@ -73,6 +73,95 @@ class PendingFrame:
     frame_height: int
 
 
+class FrameSelectionSchedule:
+    """声音候选附近高频采样，其余时段只做低频骨架跟踪。"""
+
+    def __init__(
+        self,
+        analysis_fps: float,
+        *,
+        focus_timestamps: tuple[float, ...] = (),
+        focus_window: float = 1.0,
+        tracking_fps: float = 3.0,
+    ) -> None:
+        self._analysis_period = 1.0 / analysis_fps
+        self._tracking_period = 1.0 / tracking_fps
+        self._intervals = _merge_focus_intervals(
+            focus_timestamps,
+            focus_window,
+        )
+        self._interval_index = 0
+        self._next_analysis_timestamp = 0.0
+        self._next_tracking_timestamp = 0.0
+
+    @property
+    def focused(self) -> bool:
+        return bool(self._intervals)
+
+    def should_select(self, timestamp: float) -> bool:
+        analysis_due = timestamp + 1e-9 >= self._next_analysis_timestamp
+        if analysis_due:
+            # 无论该帧最终是否被聚焦策略保留，都推进原始的全局采样时钟。
+            # 因此聚焦模式只会删除原本会分析的帧，不会改变帧相位。
+            self._next_analysis_timestamp = timestamp + self._analysis_period
+        if not self._intervals:
+            return analysis_due
+
+        while (
+            self._interval_index < len(self._intervals)
+            and timestamp > self._intervals[self._interval_index][1] + 1e-9
+        ):
+            self._interval_index += 1
+
+        in_focus = False
+        if self._interval_index < len(self._intervals):
+            start, end = self._intervals[self._interval_index]
+            in_focus = start - 1e-9 <= timestamp <= end + 1e-9
+        if in_focus:
+            if (
+                analysis_due
+                and timestamp + 1e-9 >= self._next_tracking_timestamp
+            ):
+                self._next_tracking_timestamp = timestamp + self._tracking_period
+            return analysis_due
+
+        tracking_due = (
+            analysis_due
+            and timestamp + 1e-9 >= self._next_tracking_timestamp
+        )
+        if tracking_due:
+            self._next_tracking_timestamp = timestamp + self._tracking_period
+        return tracking_due
+
+
+def _merge_focus_intervals(
+    timestamps: tuple[float, ...],
+    window: float,
+) -> tuple[tuple[float, float], ...]:
+    intervals = sorted(
+        (max(0.0, float(timestamp) - window), float(timestamp) + window)
+        for timestamp in timestamps
+    )
+    merged: list[list[float]] = []
+    for start, end in intervals:
+        if not merged or start > merged[-1][1]:
+            merged.append([start, end])
+        else:
+            merged[-1][1] = max(merged[-1][1], end)
+    return tuple((start, end) for start, end in merged)
+
+
+def _frame_selection_schedule(config: AnalysisConfig) -> FrameSelectionSchedule:
+    return FrameSelectionSchedule(
+        config.analysis_fps,
+        focus_timestamps=tuple(
+            getattr(config, "visual_focus_timestamps", ())
+        ),
+        focus_window=float(getattr(config, "visual_focus_window", 1.0)),
+        tracking_fps=float(getattr(config, "visual_tracking_fps", 3.0)),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PoseFrameSample:
     """用于识别完整挥拍轨迹的标准化骨架帧。"""
@@ -102,6 +191,12 @@ class RacketCandidate:
     wrist_points: tuple[np.ndarray, ...]
     person_height: float
     frame_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class _BufferedRacketCandidate:
+    candidate: RacketCandidate
+    tensor: object | None
 
 
 class RacketVerifier:
@@ -196,6 +291,82 @@ class RacketVerifier:
         from ultralytics import YOLO
 
         self._model = YOLO(str(pt_path))
+
+
+class RacketVerificationBuffer:
+    """跨姿态批次合并同一次挥拍，并批量执行球拍确认。"""
+
+    def __init__(
+        self,
+        verifier: RacketVerifier,
+        events: list[VisualEvent],
+        *,
+        batch_size: int,
+    ) -> None:
+        self._verifier = verifier
+        self._events = events
+        self._batch_size = max(1, batch_size)
+        self._current_swing: list[_BufferedRacketCandidate] = []
+        self._ready: list[_BufferedRacketCandidate] = []
+
+    def add(self, candidates: list[RacketCandidate], *, cuda_tensor=None) -> None:
+        for candidate in candidates:
+            if (
+                self._current_swing
+                and candidate.event.timestamp
+                - self._current_swing[-1].candidate.event.timestamp
+                >= VISUAL_EVENT_COOLDOWN_SECONDS
+            ):
+                self._finalize_current_swing()
+            tensor = None
+            if cuda_tensor is not None:
+                # 只保留候选帧自身，避免切片长期引用整个姿态批次。
+                tensor = cuda_tensor[
+                    candidate.frame_index : candidate.frame_index + 1
+                ].clone()
+            self._current_swing.append(_BufferedRacketCandidate(candidate, tensor))
+        self._flush_ready(force=False)
+
+    def finish(self) -> None:
+        self._finalize_current_swing()
+        self._flush_ready(force=True)
+
+    def _finalize_current_swing(self) -> None:
+        if not self._current_swing:
+            return
+        strongest = sorted(
+            self._current_swing,
+            key=lambda item: item.candidate.event.confidence,
+            reverse=True,
+        )[:3]
+        self._ready.extend(
+            sorted(strongest, key=lambda item: item.candidate.event.timestamp)
+        )
+        self._current_swing.clear()
+
+    def _flush_ready(self, *, force: bool) -> None:
+        while self._ready and (force or len(self._ready) >= self._batch_size):
+            count = len(self._ready) if force else self._batch_size
+            chunk = self._ready[:count]
+            del self._ready[:count]
+            candidates = [
+                replace(item.candidate, frame_index=index)
+                for index, item in enumerate(chunk)
+            ]
+            tensors = [item.tensor for item in chunk]
+            if any(tensor is not None for tensor in tensors):
+                if not all(tensor is not None for tensor in tensors):
+                    raise VisualAnalysisError("球拍候选的 GPU 张量状态不一致")
+                import torch
+
+                verification_tensor = torch.cat(tensors)
+            else:
+                verification_tensor = None
+            for verified_event in self._verifier.verify(
+                candidates,
+                cuda_tensor=verification_tensor,
+            ):
+                _append_or_replace_visual_event(self._events, verified_event)
 
 
 class PoseStrokeDetector:
@@ -680,12 +851,17 @@ def analyze_video(
     )
 
     events: list[VisualEvent] = []
+    racket_buffer = RacketVerificationBuffer(
+        racket_verifier,
+        events,
+        batch_size=batch_size,
+    )
     stroke_detector = PoseStrokeDetector(config)
     previous_center: np.ndarray | None = None
     previous_gray: np.ndarray | None = None
     frame_index = 0
     previous_timestamp = -1.0
-    next_analysis_timestamp = 0.0
+    frame_schedule = _frame_selection_schedule(config)
     pending_frames: list[PendingFrame] = []
     supports_grab = callable(getattr(capture, "grab", None)) and callable(
         getattr(capture, "retrieve", None)
@@ -724,9 +900,8 @@ def analyze_video(
                 for item in pending_frames
             ],
             config,
-            events,
             stroke_detector,
-            racket_verifier,
+            racket_buffer,
             [item.frame for item in pending_frames],
             previous_center,
         )
@@ -754,9 +929,8 @@ def analyze_video(
             previous_timestamp = timestamp
             if limit_duration is not None and timestamp > limit_duration:
                 break
-            if timestamp + 1e-9 < next_analysis_timestamp:
+            if not frame_schedule.should_select(timestamp):
                 continue
-            next_analysis_timestamp = timestamp + 1.0 / config.analysis_fps
             if supports_grab:
                 ok, frame = capture.retrieve()
                 if not ok:
@@ -786,6 +960,7 @@ def analyze_video(
     finally:
         capture.release()
 
+    racket_buffer.finish()
     if progress_callback is not None:
         progress_callback(1.0)
     return events
@@ -988,8 +1163,14 @@ def _analyze_video_nvdec(
         torch_module=torch_module,
         use_fp16=use_fp16,
         square_input=False,
+        frame_selector=_frame_selection_schedule(config).should_select,
     )
     events: list[VisualEvent] = []
+    racket_buffer = RacketVerificationBuffer(
+        racket_verifier,
+        events,
+        batch_size=batch_size,
+    )
     stroke_detector = PoseStrokeDetector(config)
     previous_center: np.ndarray | None = None
     predictor = None
@@ -1030,15 +1211,15 @@ def _analyze_video_nvdec(
                 )
             ],
             config,
-            events,
             stroke_detector,
-            racket_verifier,
+            racket_buffer,
             list(batch.original_images[: len(batch.timestamps)]),
             previous_center,
             cuda_tensor=batch.tensor,
         )
         if progress_callback is not None:
             progress_callback(batch.progress)
+    racket_buffer.finish()
     if progress_callback is not None:
         progress_callback(1.0)
     return events
@@ -1066,8 +1247,14 @@ def _analyze_video_onnx_nvdec(
         torch_module=torch,
         use_fp16=False,
         square_input=True,
+        frame_selector=_frame_selection_schedule(config).should_select,
     )
     events: list[VisualEvent] = []
+    racket_buffer = RacketVerificationBuffer(
+        racket_verifier,
+        events,
+        batch_size=batch_size,
+    )
     stroke_detector = PoseStrokeDetector(config)
     previous_center: np.ndarray | None = None
     for batch in batches:
@@ -1086,15 +1273,15 @@ def _analyze_video_onnx_nvdec(
                 )
             ],
             config,
-            events,
             stroke_detector,
-            racket_verifier,
+            racket_buffer,
             list(batch.original_images[: len(batch.timestamps)]),
             previous_center,
             cuda_tensor=batch.tensor,
         )
         if progress_callback is not None:
             progress_callback(batch.progress)
+    racket_buffer.finish()
     if progress_callback is not None:
         progress_callback(1.0)
     return events
@@ -1104,9 +1291,8 @@ def _consume_prediction_results(
     predictions,
     frame_signals: list[tuple[float, float, float]],
     config: AnalysisConfig,
-    events: list[VisualEvent],
     stroke_detector: PoseStrokeDetector,
-    racket_verifier: RacketVerifier,
+    racket_buffer: RacketVerificationBuffer,
     frames: list[np.ndarray],
     previous_center: np.ndarray | None,
     *,
@@ -1152,11 +1338,7 @@ def _consume_prediction_results(
                     )
                 )
         previous_center = selected.center
-    for verified_event in racket_verifier.verify(
-        _select_racket_candidates(racket_candidates),
-        cuda_tensor=cuda_tensor,
-    ):
-        _append_or_replace_visual_event(events, verified_event)
+    racket_buffer.add(racket_candidates, cuda_tensor=cuda_tensor)
     return previous_center
 
 

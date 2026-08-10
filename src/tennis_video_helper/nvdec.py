@@ -8,6 +8,7 @@ import importlib.util
 import math
 import os
 from pathlib import Path
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -56,6 +57,7 @@ def iter_nvdec_batches(
     torch_module,
     use_fp16: bool,
     square_input: bool = False,
+    frame_selector: Callable[[float], bool] | None = None,
 ):
     """按分析帧率直接在 GPU 上解码、旋转、缩放并生成固定尺寸批次。"""
 
@@ -130,9 +132,12 @@ def iter_nvdec_batches(
                 if limit_duration is not None and timestamp > limit_duration:
                     reached_limit = True
                     break
-                if timestamp + 1e-9 < next_analysis_timestamp:
+                if frame_selector is None:
+                    if timestamp + 1e-9 < next_analysis_timestamp:
+                        continue
+                    next_analysis_timestamp = timestamp + 1.0 / analysis_fps
+                elif not frame_selector(timestamp):
                     continue
-                next_analysis_timestamp = timestamp + 1.0 / analysis_fps
                 selected.append((timestamp, frame))
             source_index += len(decoded_frames)
             if not selected:

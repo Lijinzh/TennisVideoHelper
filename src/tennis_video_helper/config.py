@@ -35,6 +35,13 @@ class AnalysisConfig:
     gpu_available: bool | None = None  # 运行时探测结果；None 表示由调用方保持原有 GPU 导出行为，CLI 会写入实际探测结果
     export_original_quality: bool = False  # 默认把超过 1080p 的视频缩小到 1080p 并保持原始帧率；开启后保留源分辨率
     overwrite_existing_output: bool = False  # 成功完成后是否替换同名视频的旧结果；GUI 和 CLI 默认开启，失败或停止时保留旧结果
+    visual_focus_timestamps: tuple[float, ...] = field(
+        default_factory=tuple,
+        compare=False,
+        repr=False,
+    )  # 内部加速提示：声音粗筛出的候选时刻；为空时保持完整画面分析
+    visual_focus_window: float = 1.0  # 每个声音候选前后维持完整画面分析率的秒数，完整覆盖引拍、触球和随挥
+    visual_tracking_fps: float = 3.0  # 非声音候选区间的低频人体跟踪率，用于维持骨架历史并兜底无声挥拍
     acceleration_callback: AccelerationCallback | None = field(
         default=None,
         compare=False,
@@ -52,6 +59,8 @@ class AnalysisConfig:
             "visual_sensitivity",
             "rally_support_threshold",
             "inference_batch_size",
+            "visual_focus_window",
+            "visual_tracking_fps",
         )
         non_negative_fields = ("pre_roll", "post_roll", "merge_gap")
 
@@ -87,3 +96,6 @@ class AnalysisConfig:
 
         if self.player_handedness not in {"right", "left", "auto"}:
             raise ValueError("player_handedness 必须是 right、left 或 auto")
+
+        if any(timestamp < 0 for timestamp in self.visual_focus_timestamps):
+            raise ValueError("visual_focus_timestamps 不能包含负数")

@@ -567,7 +567,7 @@ def _prepare_video_assets(
     progress_callback(0.04, "检查媒体信息")
     clips_dir = working_output_dir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
-    progress_callback(0.07, "并行分析声音与画面")
+    progress_callback(0.07, "声音粗筛击球候选")
 
     def report_visual_progress(fraction: float) -> None:
         progress_callback(
@@ -577,27 +577,26 @@ def _prepare_video_assets(
 
     with tempfile.TemporaryDirectory(prefix="tennis-video-helper-") as temporary:
         audio_path = Path(temporary) / "audio.wav"
-        with ThreadPoolExecutor(
-            max_workers=2,
-            thread_name_prefix="tennis-analysis",
-        ) as executor:
-            audio_future = executor.submit(
-                _analyze_audio_track,
-                source,
-                audio_path,
-                config,
-                limit_duration,
-                services,
-            )
-            visual_future = executor.submit(
-                services.analyze_video,
-                source,
-                config,
-                limit_duration,
-                report_visual_progress,
-            )
-            audio_events = audio_future.result()
-            visual_events = visual_future.result()
+        audio_events = _analyze_audio_track(
+            source,
+            audio_path,
+            config,
+            limit_duration,
+            services,
+        )
+        focused_config = replace(
+            config,
+            visual_focus_timestamps=tuple(
+                event.timestamp for event in audio_events
+            ),
+        )
+        progress_callback(0.08, "声音粗筛完成，GPU 骨架确认")
+        visual_events = services.analyze_video(
+            source,
+            focused_config,
+            limit_duration,
+            report_visual_progress,
+        )
     progress_callback(0.76, "融合声音与动作")
     fused_events = fuse_events(audio_events, visual_events, config)
     effective_duration = (

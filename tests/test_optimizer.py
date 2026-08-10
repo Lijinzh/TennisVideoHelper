@@ -8,9 +8,23 @@ from tennis_video_helper.optimizer import (
     HardwareSnapshot,
     OptimizationProfile,
     candidate_matrix,
+    _events_match,
     load_profile,
     optimize_hardware,
 )
+
+
+def test_optimizer_rejects_faster_batch_that_drops_visual_events() -> None:
+    reference = [VisualEvent(float(index), 0.8, 0.8, 0.0) for index in range(36)]
+    dropped = reference[5:]
+
+    assert not _events_match(reference, dropped)
+
+
+def test_optimizer_allows_one_minor_boundary_difference() -> None:
+    reference = [VisualEvent(float(index), 0.8, 0.8, 0.0) for index in range(36)]
+
+    assert _events_match(reference, reference[1:])
 
 
 def _snapshot(*, cuda: bool = True) -> HardwareSnapshot:

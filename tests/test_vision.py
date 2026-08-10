@@ -5,9 +5,11 @@ import numpy as np
 import pytest
 
 from tennis_video_helper.vision import (
+    FrameSelectionSchedule,
     PoseDetection,
     PoseStrokeDetector,
     RacketCandidate,
+    RacketVerificationBuffer,
     _racket_confirmation_score,
     _select_racket_candidates,
     analyze_video,
@@ -18,6 +20,70 @@ from tennis_video_helper.vision import (
     select_primary_detection,
 )
 from tennis_video_helper.models import VisualEvent
+
+
+def test_frame_selection_schedule_uses_full_rate_near_audio_candidates() -> None:
+    schedule = FrameSelectionSchedule(
+        10,
+        focus_timestamps=(1.0,),
+        focus_window=0.2,
+        tracking_fps=2,
+    )
+
+    timestamps = [index * 0.05 for index in range(41)]
+    selected = [
+        round(timestamp, 2)
+        for timestamp in timestamps
+        if schedule.should_select(timestamp)
+    ]
+
+    assert selected == [0.0, 0.5, 0.8, 0.9, 1.0, 1.1, 1.2, 1.5, 2.0]
+
+
+def test_frame_selection_schedule_preserves_full_scan_without_audio_hints() -> None:
+    schedule = FrameSelectionSchedule(10, tracking_fps=2)
+
+    timestamps = [index * 0.05 for index in range(11)]
+    selected = [
+        round(timestamp, 2)
+        for timestamp in timestamps
+        if schedule.should_select(timestamp)
+    ]
+
+    assert selected == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+
+
+def test_racket_buffer_groups_one_swing_across_pose_batches() -> None:
+    received: list[list[float]] = []
+
+    class FakeVerifier:
+        def verify(self, candidates, *, cuda_tensor=None):
+            assert cuda_tensor is None
+            received.append([candidate.event.timestamp for candidate in candidates])
+            return [candidate.event for candidate in candidates]
+
+    def candidate(timestamp: float, confidence: float) -> RacketCandidate:
+        return RacketCandidate(
+            event=VisualEvent(timestamp, confidence, 0.8, 0.0),
+            frame=np.empty((2, 2, 3), dtype=np.uint8),
+            wrist_points=(np.array([1.0, 1.0]),),
+            person_height=10.0,
+            frame_index=0,
+        )
+
+    events: list[VisualEvent] = []
+    buffer = RacketVerificationBuffer(FakeVerifier(), events, batch_size=8)
+    buffer.add([candidate(1.0, 0.4), candidate(1.1, 0.8)])
+    buffer.add(
+        [
+            candidate(1.2, 0.9),
+            candidate(1.3, 0.7),
+            candidate(2.2, 0.6),
+        ]
+    )
+    buffer.finish()
+
+    assert received == [[1.1, 1.2, 1.3, 2.2]]
 
 
 def _pose(*, offset_x: float = 0.0, wrist_shift: float = 0.0) -> np.ndarray:

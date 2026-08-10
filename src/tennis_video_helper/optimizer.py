@@ -383,7 +383,9 @@ def optimize_hardware(
 def _events_match(reference: list[VisualEvent], candidate: list[VisualEvent]) -> bool:
     if not reference:
         return not candidate
-    allowed_count_delta = max(5, round(len(reference) * 0.08))
+    # 大批量 FP16 的吞吐更高，但边界姿态会因数值波动而消失。性能优化
+    # 只能接受极小差异，不能用漏击球换取更漂亮的基准数字。
+    allowed_count_delta = max(1, round(len(reference) * 0.03))
     if abs(len(reference) - len(candidate)) > allowed_count_delta:
         return False
     candidate_times = sorted(event.timestamp for event in candidate)
@@ -399,7 +401,7 @@ def _events_match(reference: list[VisualEvent], candidate: list[VisualEvent]) ->
             nearest.append(abs(candidate_times[index - 1] - event.timestamp))
         if nearest and min(nearest) <= 0.25:
             matched += 1
-    return matched / len(reference) >= 0.9
+    return matched / len(reference) >= 0.97
 
 
 def _run_text(command: list[str]) -> str:
