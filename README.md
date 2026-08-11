@@ -208,7 +208,9 @@ Compact 输出位于 `dist\TennisVideoHelper-Compact`。Full 和 Compact 可以�
     -FfmpegDirectory "C:\path\to\ffmpeg-essentials\bin"
 ```
 
-安装包输出到 `dist\installer\TennisVideoHelper-Setup.exe`。构建脚本只收集 `ffmpeg.exe`、`ffprobe.exe` 和许可说明，并移除应用未使用的 Qt QML、Quick、PDF、虚拟键盘与翻译组件。升级安装会清理旧版 `_internal` 程序文件，但保留安装目录中的用户输出和外部设置。
+安装包按版本输出到 `dist\installer\TennisVideoHelper-Setup-<版本>.exe`。构建脚本只收集 `ffmpeg.exe`、`ffprobe.exe` 和许可说明，并移除应用未使用的 Qt QML、Quick、PDF、虚拟键盘与翻译组件。升级安装会清理旧版 `_internal` 程序文件，但保留安装目录中的用户输出和外部设置。
+
+安装版默认每天后台检查一次公开的 `Lijinzh/TennisVideoHelper-Releases` GitHub Release。发现新版本后会先征求确认，再下载安装包；软件会严格校验公开发行仓库、文件名、体积和 GitHub 提供的 SHA-256，校验通过后才允许启动安装程序。也可以通过“帮助 → 检查更新”手动检查，或关闭“自动检查更新”。源码开发模式不会在启动时自动检查。私有源码仓库不会作为匿名更新源。
 
 用于过滤讲话手势的 `assets/models/yolo11n.onnx` 球拍检测模型约 10.8 MiB，Full 与 Light/Compact 安装版都会直接内置，不需要用户联网下载，也不会显著改变安装包体积。
 

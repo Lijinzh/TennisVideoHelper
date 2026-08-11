@@ -1,5 +1,7 @@
 #define MyAppName "Tennis Video Helper"
-#define MyAppVersion "0.1.0"
+#ifndef MyAppVersion
+#define MyAppVersion "0.1.1"
+#endif
 #define MyAppPublisher "TennisVideoHelper"
 #define MyAppExeName "TennisVideoHelper.exe"
 
@@ -12,7 +14,7 @@ DefaultDirName={autopf}\TennisVideoHelper
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=..\dist\installer
-OutputBaseFilename=TennisVideoHelper-Setup
+OutputBaseFilename=TennisVideoHelper-Setup-{#MyAppVersion}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

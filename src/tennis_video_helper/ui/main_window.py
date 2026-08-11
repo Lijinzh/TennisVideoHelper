@@ -68,6 +68,7 @@ from PySide6.QtWidgets import (
 )
 
 from tennis_video_helper.app.cli import ACCELERATION_PREFIX, PROGRESS_PREFIX, REVIEW_PREFIX
+from tennis_video_helper import __version__
 from tennis_video_helper.media.probe import SUPPORTED_VIDEO_EXTENSIONS, scan_videos
 from tennis_video_helper.app.optimizer import (
     OPTIMIZATION_PREFIX,
@@ -85,6 +86,7 @@ from tennis_video_helper.review.session import (
 from tennis_video_helper.media.runtime import subprocess_no_window_kwargs
 from tennis_video_helper.resources import asset_path
 from tennis_video_helper.ui.pixel_effects import PixelMotionRail
+from tennis_video_helper.ui.update_controller import UpdateController
 
 
 VIDEO_FILE_FILTER = (
@@ -723,6 +725,13 @@ class MainWindow(QMainWindow):
         self.process.readyReadStandardOutput.connect(self._read_process_output)
         self.process.finished.connect(self._process_finished)
         self.process.errorOccurred.connect(self._process_error)
+        self.update_controller = UpdateController(
+            self,
+            self.settings,
+            current_version=__version__,
+            task_running=lambda: self.process.state()
+            != QProcess.ProcessState.NotRunning,
+        )
         self._started_at = 0.0
         self._stopping = False
         self._progress_percent = 0.0
@@ -801,6 +810,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(
             0, lambda: _apply_windows_frame_theme(self, dark=self._dark_theme)
         )
+        QTimer.singleShot(2500, self.update_controller.schedule_auto_check)
 
     def _show_initial_view(self) -> None:
         """让首次打开时停留在顶部主工作区。"""
@@ -875,6 +885,19 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.motion_action)
 
         help_menu = self.menuBar().addMenu("帮助(&H)")
+        self.check_updates_action = QAction("检查更新…", self)
+        self.check_updates_action.triggered.connect(
+            lambda: self.update_controller.check_for_updates(manual=True)
+        )
+        help_menu.addAction(self.check_updates_action)
+        self.auto_updates_action = QAction("自动检查更新", self)
+        self.auto_updates_action.setCheckable(True)
+        self.auto_updates_action.setChecked(self.update_controller.auto_enabled)
+        self.auto_updates_action.toggled.connect(
+            self.update_controller.set_auto_enabled
+        )
+        help_menu.addAction(self.auto_updates_action)
+        help_menu.addSeparator()
         about_action = QAction("关于 Tennis Video Helper", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
@@ -882,7 +905,7 @@ class MainWindow(QMainWindow):
     def _build_top_bar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("topBar")
-        bar.setFixedHeight(54)
+        bar.setFixedHeight(64)
         bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(10, 8, 10, 8)
@@ -890,6 +913,7 @@ class MainWindow(QMainWindow):
 
         self.settings_button = QPushButton("参数调节")
         self.settings_button.setObjectName("navigationButton")
+        self.settings_button.setMinimumHeight(46)
         self.settings_button.setToolTip("调节识别、GPU 和导出参数")
         self.settings_button.clicked.connect(self._show_parameter_panel)
         layout.addWidget(self.settings_button)
@@ -927,7 +951,8 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "关于 Tennis Video Helper",
-            "Tennis Video Helper\n\n声音、人体骨架与球拍检测融合的网球回合筛选工具。",
+            f"Tennis Video Helper {__version__}\n\n"
+            "声音、人体骨架与球拍检测融合的网球回合筛选工具。",
         )
 
     def _build_workbench_card(self) -> QFrame:
@@ -2251,6 +2276,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
+        self.update_controller.shutdown()
         self.media_player.stop()
         self.media_player.setSource(QUrl())
         if self.process.state() != QProcess.ProcessState.NotRunning:

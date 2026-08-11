@@ -111,10 +111,12 @@ try {
     if (-not (Test-Path -LiteralPath $InnoCompiler)) {
         throw "Inno Setup compiler was not found: $InnoCompiler"
     }
-    & $InnoCompiler packaging\TennisVideoHelper.iss
+    $ProjectVersion = (& $BuildPython -c "from tennis_video_helper import __version__; print(__version__)").Trim()
+    if (-not $ProjectVersion) { throw "Failed to read the project version" }
+    & $InnoCompiler "/DMyAppVersion=$ProjectVersion" packaging\TennisVideoHelper.iss
     if ($LASTEXITCODE -ne 0) { throw "Failed to build the installer" }
 
-    $Installer = Join-Path $ProjectRoot "dist\installer\TennisVideoHelper-Setup.exe"
+    $Installer = Join-Path $ProjectRoot "dist\installer\TennisVideoHelper-Setup-$ProjectVersion.exe"
     $InstalledBytes = (Get-ChildItem -LiteralPath $Portable -File -Recurse | Measure-Object Length -Sum).Sum
     $InstallerBytes = (Get-Item -LiteralPath $Installer).Length
     [pscustomobject]@{

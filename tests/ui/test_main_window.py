@@ -721,6 +721,20 @@ def test_pixel_theme_uses_segmented_progress_and_readable_chinese_font() -> None
     assert isinstance(window.motion_rail, gui_module.PixelMotionRail)
     assert "border-bottom-width: 6px" in window.styleSheet()
     assert "border-top-color: #8191a1" in window.styleSheet()
+    assert window.settings_button.minimumHeight() >= 46
+    assert window.settings_button.parentWidget().height() >= 64
+
+    window.close()
+    app.processEvents()
+
+
+def test_update_actions_are_available_and_enabled_by_default() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+
+    assert window.check_updates_action.text() == "检查更新…"
+    assert window.auto_updates_action.isCheckable() is True
+    assert window.update_controller.current_version == "0.1.1"
 
     window.close()
     app.processEvents()
