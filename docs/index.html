@@ -13,9 +13,9 @@
   <link rel="canonical" href="https://lijinzh.github.io/TennisVideoHelper/">
   <link rel="icon" type="image/png" href="assets/images/tennis-video-helper/app-icon.png">
   <link rel="stylesheet" href="pixel-preview.css?v=20260812-tennis">
-  <link rel="stylesheet" href="tennis-video-helper.css?v=20260812-v2">
+  <link rel="stylesheet" href="tennis-video-helper.css?v=20260812-v3">
   <script src="pixel-preview.js?v=20260812-tennis" defer></script>
-  <script src="tennis-video-helper.js?v=20260812-v2" defer></script>
+  <script src="tennis-video-helper.js?v=20260812-v3" defer></script>
 </head>
 <body class="pixel-site tennis-site">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -36,6 +36,7 @@
       <a href="#settings">设置</a>
       <a href="#progress">进度</a>
       <a href="#install">安装</a>
+      <a href="#feedback">反馈</a>
     </nav>
     <a class="tennis-back-link" href="https://github.com/Lijinzh/TennisVideoHelper" target="_blank" rel="noopener noreferrer"><span>LIJINZH / GITHUB</span><strong>查看项目仓库</strong></a>
   </header>
@@ -53,7 +54,7 @@
         <div class="tennis-install-note" role="status" data-download-status>
           <span>v0.1.0</span><strong>156.2 MiB</strong><small>内置运行环境、模型与 FFmpeg，无需另装 Python。</small>
         </div>
-        <p class="tennis-private-note">当前安装包位于私有 GitHub Release；请先登录拥有仓库权限的 GitHub 账户。公开下载镜像正在规划中。</p>
+        <p class="tennis-private-note">安装包由公开 GitHub Release 提供；点击即可下载。若网络连接不稳定，也可以进入发布页后重新下载。</p>
       </div>
 
       <figure class="tennis-hero__screen" data-pixel-reveal>
@@ -168,6 +169,23 @@
       </div>
     </section>
 
+    <section class="tennis-feedback-section" id="feedback" aria-labelledby="feedback-title">
+      <div class="tennis-feedback-section__copy" data-pixel-reveal>
+        <p class="tennis-kicker"><span>PLAYER FEEDBACK</span> 你的体验会进入研发清单</p>
+        <h2 id="feedback-title">遇到问题，或者想到更好的做法？直接在这里告诉我。</h2>
+        <p>不需要自己研究 Issue 格式。填写窗口会在本地整理标题、使用环境和详细说明，再打开已经预填好的 GitHub Issue 页面。</p>
+        <div class="tennis-feedback-actions">
+          <button class="tennis-button tennis-button--primary" type="button" data-feedback-open>打开意见反馈窗口</button>
+          <a class="tennis-text-link" href="https://github.com/Lijinzh/TennisVideoHelper/issues/new?template=user-feedback.yml" target="_blank" rel="noopener noreferrer">熟悉 GitHub？直接使用 Issue 表单 →</a>
+        </div>
+      </div>
+      <ol class="tennis-feedback-flow" data-pixel-reveal>
+        <li><span>01</span><strong>填写反馈</strong><p>选择类型，写下现象、建议和使用环境。</p></li>
+        <li><span>02</span><strong>自动整理</strong><p>网页在本地生成结构清楚的 Issue 标题和正文。</p></li>
+        <li><span>03</span><strong>确认提交</strong><p>跳转 GitHub 后检查内容，点击一次即可正式创建。</p></li>
+      </ol>
+    </section>
+
     <section class="tennis-faq" aria-labelledby="faq-title">
       <header class="tennis-section-heading" data-pixel-reveal>
         <p class="tennis-kicker"><span>FAQ</span> 安装与使用边界</p>
@@ -177,14 +195,75 @@
         <details data-pixel-reveal><summary>安装版还需要 Python 或 FFmpeg 吗？</summary><p>不需要。安装包已经内置应用运行环境、模型以及程序使用的 FFmpeg 与 ffprobe。</p></details>
         <details data-pixel-reveal><summary>一定要 NVIDIA 显卡吗？</summary><p>轻量安装版可以使用 ONNX GPU 路径；NVIDIA 显卡还能启用 NVDEC / NVENC，并在支持的环境中使用 CUDA 或 TensorRT。不可用时软件会明确显示回退状态。</p></details>
         <details data-pixel-reveal><summary>程序会删除我的原视频吗？</summary><p>不会。源视频始终只读；软件只向你选择的输出目录写入候选和最终片段。</p></details>
-        <details data-pixel-reveal><summary>为什么下载安装包时显示 404？</summary><p>当前 Release 位于私有源码仓库。请确认已登录拥有该仓库权限的 GitHub 账户；公开下载镜像尚未发布。</p></details>
+        <details data-pixel-reveal><summary>为什么安装包下载很慢或打不开？</summary><p>安装包托管在公开 GitHub Release。可以尝试切换网络、稍后重试，或者先进入 v0.1.0 发布页再点击安装包文件。</p></details>
+        <details data-pixel-reveal><summary>网页填写反馈后会立刻公开吗？</summary><p>不会。内容只在你的浏览器里整理；跳转 GitHub 后仍需要你检查并确认提交。Issue 创建后会公开显示，请勿填写手机号、邮箱、私人视频地址或其他敏感信息。</p></details>
       </div>
     </section>
   </main>
 
+  <dialog class="tennis-feedback-dialog" data-feedback-dialog aria-labelledby="feedback-dialog-title" aria-describedby="feedback-dialog-description">
+    <form class="tennis-feedback-form" data-feedback-form>
+      <header>
+        <div>
+          <p class="tennis-kicker"><span>NEW ISSUE</span> 内容在浏览器本地整理</p>
+          <h2 id="feedback-dialog-title">提交用户意见</h2>
+        </div>
+        <button class="tennis-feedback-close" type="button" data-feedback-close aria-label="关闭意见反馈窗口">×</button>
+      </header>
+      <p id="feedback-dialog-description" class="tennis-feedback-description">填写完成后会前往 GitHub 的最终确认页面；如果尚未登录，会先显示登录页，登录后继续。本站不会保存你的输入，也不会在网页中使用 GitHub Token。</p>
+
+      <div class="tennis-feedback-grid">
+        <label>
+          <span>反馈类型</span>
+          <select name="category" required>
+            <option value="使用问题">使用问题</option>
+            <option value="识别效果">识别效果</option>
+            <option value="安装更新">安装或更新</option>
+            <option value="功能建议">功能建议</option>
+            <option value="其他反馈">其他反馈</option>
+          </select>
+        </label>
+        <label>
+          <span>软件版本</span>
+          <select name="version" required>
+            <option value="v0.1.0">v0.1.0</option>
+            <option value="不确定">不确定</option>
+          </select>
+        </label>
+      </div>
+
+      <label>
+        <span>一句话标题</span>
+        <input name="summary" type="text" maxlength="80" required placeholder="例如：分析结束后找不到导出按钮">
+      </label>
+
+      <label>
+        <span>详细说明</span>
+        <textarea name="details" rows="7" maxlength="2000" required data-feedback-details placeholder="发生了什么？你原本希望看到什么？如果可以，请写下复现步骤。"></textarea>
+        <small><span data-feedback-count>0</span> / 2000</small>
+      </label>
+
+      <label>
+        <span>使用环境（选填）</span>
+        <input name="environment" type="text" maxlength="160" placeholder="例如：Windows 11 / RTX 3070 / 4K 60fps 视频">
+      </label>
+
+      <label class="tennis-feedback-consent">
+        <input name="publicConsent" type="checkbox" required>
+        <span>我知道 GitHub Issue 创建后会公开显示，并已移除手机号、邮箱、私人视频链接等敏感信息。</span>
+      </label>
+
+      <div class="tennis-feedback-form__actions">
+        <button class="tennis-button tennis-button--primary" type="submit">整理并前往 GitHub 提交</button>
+        <button class="tennis-button" type="button" data-feedback-copy>复制反馈内容</button>
+      </div>
+      <p class="tennis-feedback-status" role="status" aria-live="polite" data-feedback-status>填写内容后，选择提交或复制备用文本。</p>
+    </form>
+  </dialog>
+
   <footer class="pixel-footer tennis-footer">
     <div class="pixel-footer__brand"><span>TVH</span><strong>Tennis Video Helper</strong><p>让模型负责寻找，让你决定什么值得保留。</p></div>
-    <nav aria-label="页脚导航"><a href="#features">功能</a><a href="#settings">设置</a><a href="#progress">研发进度</a><a href="#install">下载与安装</a><a href="https://github.com/Lijinzh/TennisVideoHelper" target="_blank" rel="noopener noreferrer">GitHub 项目仓库</a></nav>
+    <nav aria-label="页脚导航"><a href="#features">功能</a><a href="#settings">设置</a><a href="#progress">研发进度</a><a href="#install">下载与安装</a><a href="#feedback">用户反馈</a><a href="https://github.com/Lijinzh/TennisVideoHelper" target="_blank" rel="noopener noreferrer">GitHub 项目仓库</a></nav>
     <div class="pixel-footer__status"><span><i></i> v0.1.0 RELEASED</span><small>Windows 安装版 · 2026-08-12</small></div>
     <p class="pixel-footer__bottom">© 2026 TENNIS VIDEO HELPER // BUILT FOR LONG RALLIES</p>
   </footer>

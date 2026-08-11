@@ -1,0 +1,41 @@
+name: 用户意见反馈
+description: 报告使用问题、识别效果、安装问题或功能建议
+title: "[反馈] "
+labels: ["user feedback"]
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: 反馈类型
+      options:
+        - 使用问题
+        - 识别效果
+        - 安装或更新
+        - 功能建议
+        - 其他反馈
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: 问题或建议
+      description: 请说明发生了什么、你期待的结果，以及可以复现问题的步骤。
+      placeholder: 请尽量具体地描述你的体验。
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 使用环境
+      description: 例如 Windows 11、RTX 3070、软件版本和视频规格。
+      placeholder: Windows 11 / RTX 3070 / v0.1.0
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 公开信息确认
+      options:
+        - label: 我已移除手机号、邮箱、私人视频链接等敏感信息。
+          required: true

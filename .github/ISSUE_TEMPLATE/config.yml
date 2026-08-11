@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Tennis Video Helper 网页反馈入口
+    url: https://lijinzh.github.io/TennisVideoHelper/#feedback
+    about: 不熟悉 GitHub Issue 格式时，可以先用网页窗口整理反馈内容。

@@ -33,3 +33,35 @@ def test_homepage_uses_larger_readable_type() -> None:
     assert "font-size: clamp(60px, 5.6vw, 84px)" in css
     assert "font-size: 18px" in css
     assert "font: 900 15px/1.2 var(--ui-sans)" in css
+
+
+def test_feedback_window_builds_a_safe_prefilled_github_issue() -> None:
+    html = (SITE / "index.html").read_text(encoding="utf-8")
+    script = (SITE / "tennis-video-helper.js").read_text(encoding="utf-8")
+    css = (SITE / "tennis-video-helper.css").read_text(encoding="utf-8")
+    assert 'id="feedback"' in html
+    assert "data-feedback-dialog" in html
+    assert "data-feedback-form" in html
+    assert "Issue 创建后会公开显示" in html
+    assert "https://github.com/Lijinzh/TennisVideoHelper/issues/new" in script
+    assert "issueUrl.searchParams.set('title'" in script
+    assert "issueUrl.searchParams.set('body'" in script
+    assert "window.location.assign(prepared.issueUrl)" in script
+    assert "navigator.clipboard.writeText(prepared.body)" in script
+    assert ".tennis-feedback-dialog::backdrop" in css
+
+
+def test_public_download_copy_is_current() -> None:
+    html = (SITE / "index.html").read_text(encoding="utf-8")
+    assert "安装包由公开 GitHub Release 提供" in html
+    assert "当前安装包位于私有 GitHub Release" not in html
+
+
+def test_github_user_feedback_issue_form_exists() -> None:
+    template = ROOT / ".github" / "ISSUE_TEMPLATE" / "user-feedback.yml"
+    config = ROOT / ".github" / "ISSUE_TEMPLATE" / "config.yml"
+    assert template.is_file()
+    assert config.is_file()
+    template_text = template.read_text(encoding="utf-8")
+    assert "name: 用户意见反馈" in template_text
+    assert 'labels: ["user feedback"]' in template_text
