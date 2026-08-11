@@ -707,6 +707,22 @@ def test_window_theme_can_switch_between_system_light_and_dark_styles() -> None:
     app.processEvents()
 
 
+def test_pixel_theme_uses_segmented_progress_and_readable_chinese_font() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+
+    assert isinstance(window.progress, gui_module.PixelProgressBar)
+    assert isinstance(window.analysis_progress, gui_module.PixelProgressBar)
+    assert "border-radius: 0px" in window.styleSheet()
+    assert 'font-family: "Microsoft YaHei UI"' in window.styleSheet()
+    labels = [label.text() for label in window.findChildren(gui_module.QLabel)]
+    assert "■ AI TENNIS WORKFLOW / PIXEL MODE" in labels
+    assert window.status_badge.text().startswith("■")
+
+    window.close()
+    app.processEvents()
+
+
 def test_loaded_candidate_media_does_not_reenter_player_controls() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()

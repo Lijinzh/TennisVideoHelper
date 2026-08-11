@@ -471,6 +471,53 @@ class ContainedVideoWidget(QVideoWidget):
         return QSize(0, 0)
 
 
+class PixelProgressBar(QProgressBar):
+    """使用离散方块绘制的像素风进度条。"""
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        del event
+        painter = QPainter(self)
+        dark = bool(getattr(self.window(), "_dark_theme", True))
+        border_color = QColor("#596574" if dark else "#7e8996")
+        background_color = QColor("#090b0e" if dark else "#ffffff")
+        empty_color = QColor("#202630" if dark else "#dfe5ea")
+        fill_color = QColor("#b9f45a" if dark else "#78ad2e")
+        text_color = QColor("#f4f7ed" if dark else "#17200c")
+        if not self.isEnabled():
+            fill_color = QColor("#525a63" if dark else "#aab2ba")
+
+        outer = self.rect().adjusted(0, 0, -1, -1)
+        painter.setPen(QPen(border_color, 2))
+        painter.setBrush(background_color)
+        painter.drawRect(outer)
+
+        inner = outer.adjusted(4, 4, -4, -4)
+        segment_gap = 2
+        segment_count = max(8, inner.width() // 18)
+        total_gap = segment_gap * (segment_count - 1)
+        segment_width = max(2, (inner.width() - total_gap) // segment_count)
+        available = max(0, self.maximum() - self.minimum())
+        fraction = (
+            0.0
+            if available <= 0
+            else (self.value() - self.minimum()) / available
+        )
+        filled = round(max(0.0, min(1.0, fraction)) * segment_count)
+        painter.setPen(Qt.PenStyle.NoPen)
+        x = inner.x()
+        for index in range(segment_count):
+            painter.setBrush(fill_color if index < filled else empty_color)
+            painter.drawRect(x, inner.y(), segment_width, inner.height())
+            x += segment_width + segment_gap
+
+        font = QFont("Cascadia Mono", 9, QFont.Weight.Bold)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        painter.setFont(font)
+        painter.setPen(text_color)
+        painter.drawText(outer, Qt.AlignmentFlag.AlignCenter, self.text())
+        painter.end()
+
+
 class HitTimeline(QWidget):
     """显示播放进度与模型识别击球点的可点击时间线。"""
 
@@ -484,7 +531,7 @@ class HitTimeline(QWidget):
         self.setObjectName("hitTimeline")
         self.setMinimumHeight(54)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("点击时间线可跳转；绿色点表示识别出的击球位置")
+        self.setToolTip("点击时间线可跳转；绿色方块表示识别出的击球位置")
 
     def set_hits(self, duration_ms: int, hit_positions_ms: list[int]) -> None:
         self._duration_ms = max(0, duration_ms)
@@ -505,17 +552,16 @@ class HitTimeline(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().paintEvent(event)
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         dark = bool(getattr(self.window(), "_dark_theme", True))
-        track = QRectF(18, self.height() / 2 - 1.5, max(1, self.width() - 36), 3)
+        track = QRectF(18, self.height() / 2 - 2, max(1, self.width() - 36), 4)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#343940" if dark else "#cbd1d8"))
-        painter.drawRoundedRect(track, 1.5, 1.5)
+        painter.setBrush(QColor("#343d48" if dark else "#c4ccd4"))
+        painter.drawRect(track)
 
         progress_fraction = self._fraction(self._position_ms)
-        progress_track = QRectF(track.x(), track.y(), track.width() * progress_fraction, 3)
-        painter.setBrush(QColor("#9add43"))
-        painter.drawRoundedRect(progress_track, 1.5, 1.5)
+        progress_track = QRectF(track.x(), track.y(), track.width() * progress_fraction, 4)
+        painter.setBrush(QColor("#9add43" if dark else "#78ad2e"))
+        painter.drawRect(progress_track)
 
         active_window_ms = 320
         for hit_ms in self._hit_positions_ms:
@@ -523,24 +569,33 @@ class HitTimeline(QWidget):
             active = abs(self._position_ms - hit_ms) <= active_window_ms
             passed = hit_ms < self._position_ms
             if active:
-                painter.setBrush(QColor("#111316"))
-                painter.setPen(QPen(QColor("#c8ff73"), 3))
-                painter.drawEllipse(QRectF(x - 8, track.center().y() - 8, 16, 16))
+                painter.setBrush(QColor("#111316" if dark else "#ffffff"))
+                painter.setPen(QPen(QColor("#c8ff73" if dark else "#527b13"), 3))
+                painter.drawRect(QRectF(x - 7, track.center().y() - 7, 14, 14))
             else:
                 painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QColor("#9add43" if passed else "#d8f5a8"))
-                radius = 4 if passed else 3.5
-                painter.drawEllipse(
-                    QRectF(x - radius, track.center().y() - radius, radius * 2, radius * 2)
+                painter.setBrush(
+                    QColor(
+                        "#9add43"
+                        if passed
+                        else ("#d8f5a8" if dark else "#b6d888")
+                    )
+                )
+                size = 8 if passed else 6
+                painter.drawRect(
+                    QRectF(x - size / 2, track.center().y() - size / 2, size, size)
                 )
 
         playhead_x = track.x() + track.width() * progress_fraction
-        painter.setPen(QPen(QColor("#ffffff" if dark else "#26313a"), 2))
-        painter.drawLine(
-            int(playhead_x),
-            int(track.center().y() - 13),
-            int(playhead_x),
-            int(track.center().y() + 13),
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#ffffff" if dark else "#26313a"))
+        painter.drawRect(
+            QRectF(
+                int(playhead_x) - 1,
+                int(track.center().y() - 13),
+                3,
+                26,
+            )
         )
         painter.end()
 
@@ -622,11 +677,11 @@ class ParameterTile(QFrame):
     ) -> None:
         super().__init__()
         self.setObjectName("parameterTile")
-        self.setMinimumHeight(80)
+        self.setMinimumHeight(92)
         self.control = control
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(4)
+        layout.setSpacing(6)
 
         header = QHBoxLayout()
         label = QLabel(title)
@@ -635,6 +690,7 @@ class ParameterTile(QFrame):
         header.addStretch()
         header.addWidget(control)
         layout.addLayout(header)
+        layout.addSpacing(2)
 
         self.note = QLabel(description)
         self.note.setObjectName("parameterNote")
@@ -743,11 +799,11 @@ class MainWindow(QMainWindow):
         text = QVBoxLayout()
         text.setSpacing(1)
 
-        eyebrow = QLabel("AI TENNIS WORKFLOW")
+        eyebrow = QLabel("■ AI TENNIS WORKFLOW / PIXEL MODE")
         eyebrow.setObjectName("eyebrow")
         title = QLabel("网球回合精选")
         title.setObjectName("heroTitle")
-        subtitle = QLabel("自动识别候选 → 逐段预览 → 勾选导出")
+        subtitle = QLabel("[自动识别]  →  [逐段预览]  →  [勾选导出]")
         subtitle.setObjectName("heroSubtitle")
         text.addWidget(eyebrow)
         text.addWidget(title)
@@ -755,7 +811,7 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(text)
         layout.addStretch()
-        self.status_badge = QLabel("●  等待任务")
+        self.status_badge = QLabel("■  等待任务")
         self.status_badge.setObjectName("statusBadge")
         layout.addWidget(self.status_badge, alignment=Qt.AlignmentFlag.AlignTop)
         return layout
@@ -948,7 +1004,7 @@ class MainWindow(QMainWindow):
         self.analysis_feedback_phase = QLabel("正在准备分析环境")
         self.analysis_feedback_phase.setObjectName("analysisFeedbackPhase")
         feedback_layout.addWidget(self.analysis_feedback_phase)
-        self.analysis_progress = QProgressBar()
+        self.analysis_progress = PixelProgressBar()
         self.analysis_progress.setRange(0, 1000)
         self.analysis_progress.setValue(0)
         self.analysis_progress.setFormat("0.0%")
@@ -1050,7 +1106,7 @@ class MainWindow(QMainWindow):
         self.phase_label.setWordWrap(True)
         status_layout.addWidget(self.percent_label)
         status_layout.addWidget(self.phase_label)
-        self.progress = QProgressBar()
+        self.progress = PixelProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setValue(0)
         self.progress.setFormat("0.0%")
@@ -1466,11 +1522,11 @@ class MainWindow(QMainWindow):
         self.acceleration_label.setToolTip(str(device_name or title))
         if self.process.state() != QProcess.ProcessState.NotRunning:
             if cuda_available and nvenc_available:
-                self.status_badge.setText("●  GPU 处理中")
+                self.status_badge.setText("■  GPU 处理中")
             elif cuda_available or nvenc_available:
-                self.status_badge.setText("●  CPU/GPU 混合处理")
+                self.status_badge.setText("■  CPU/GPU 混合处理")
             else:
-                self.status_badge.setText("●  CPU 处理中")
+                self.status_badge.setText("■  CPU 处理中")
 
     def _set_acceleration_label(self, mode: str, text: str) -> None:
         self.acceleration_label.setText(text)
@@ -1535,10 +1591,10 @@ class MainWindow(QMainWindow):
         self._set_running(False)
         if self._process_mode == "optimization":
             if self._stopping:
-                self.status_badge.setText("●  优化已停止")
+                self.status_badge.setText("■  优化已停止")
                 self.task_summary_label.setText("本机性能优化已停止，旧配置保持不变。")
             elif exit_code == 0:
-                self.status_badge.setText("●  优化完成")
+                self.status_badge.setText("■  优化完成")
                 self._progress_percent = 100.0
                 self.progress.setValue(1000)
                 self.progress.setFormat("100.0%")
@@ -1547,14 +1603,14 @@ class MainWindow(QMainWindow):
                 self.eta_label.setText("已完成")
                 self.task_summary_label.setText("最快且通过一致性检查的配置已自动应用。")
             else:
-                self.status_badge.setText("●  优化失败")
+                self.status_badge.setText("■  优化失败")
                 self.task_summary_label.setText(
                     self._last_worker_message or f"本机性能优化异常结束，退出代码：{exit_code}"
                 )
             self._process_mode = "analysis"
             return
         if self._stopping:
-            self.status_badge.setText("●  已停止")
+            self.status_badge.setText("■  已停止")
             self.task_summary_label.setText("任务已停止；旧结果没有被覆盖。")
             if self._review_manifest_path and self._review_manifest_path.exists():
                 discard_review_session(self._review_manifest_path.parent)
@@ -1563,7 +1619,7 @@ class MainWindow(QMainWindow):
                 session = load_review_session(self._review_manifest_path)
                 self._set_review_session(session)
             except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
-                self.status_badge.setText("●  候选清单损坏")
+                self.status_badge.setText("■  候选清单损坏")
                 self.phase_label.setText("无法载入候选片段")
                 self.task_summary_label.setText(str(exc))
                 return
@@ -1572,7 +1628,7 @@ class MainWindow(QMainWindow):
             self.progress.setFormat("100.0%")
             self.percent_label.setText("100%")
             candidate_count = len(session.clips)
-            self.status_badge.setText("●  等待人工确认")
+            self.status_badge.setText("■  等待人工确认")
             self.phase_label.setText(
                 f"已生成 {candidate_count} 个候选片段"
                 if candidate_count
@@ -1589,13 +1645,13 @@ class MainWindow(QMainWindow):
                 + suffix
             )
         elif exit_code == 0:
-            self.status_badge.setText("●  未生成候选")
+            self.status_badge.setText("■  未生成候选")
             self.phase_label.setText("没有找到候选片段")
             self.task_summary_label.setText(
                 empty_candidate_guidance(self._active_analysis_limit_duration)
             )
         else:
-            self.status_badge.setText("●  处理失败")
+            self.status_badge.setText("■  处理失败")
             self.task_summary_label.setText(
                 self._last_worker_message or f"任务异常结束，退出代码：{exit_code}"
             )
@@ -1604,7 +1660,7 @@ class MainWindow(QMainWindow):
         if error == QProcess.ProcessError.FailedToStart:
             self.elapsed_timer.stop()
             self._set_running(False)
-            self.status_badge.setText("●  启动失败")
+            self.status_badge.setText("■  启动失败")
             self.task_summary_label.setText(f"无法启动后台任务：{self.process.errorString()}")
 
     def _set_running(self, running: bool) -> None:
@@ -1618,7 +1674,7 @@ class MainWindow(QMainWindow):
         self.select_all_action.setEnabled(not running and has_candidates)
         self.select_none_action.setEnabled(not running and has_candidates)
         if running:
-            self.status_badge.setText("●  正在处理")
+            self.status_badge.setText("■  正在处理")
             self.progress.setRange(0, 1000)
             self.analysis_feedback.setVisible(True)
             self.analysis_feedback_title.setText(
@@ -1634,7 +1690,7 @@ class MainWindow(QMainWindow):
             self.progress.setRange(0, 1000)
             self.analysis_feedback.setVisible(False)
             if not self.status_badge.text():
-                self.status_badge.setText("●  等待任务")
+                self.status_badge.setText("■  等待任务")
 
     def _set_review_session(self, session: ReviewSession) -> None:
         next_candidates = {
@@ -1826,12 +1882,12 @@ class MainWindow(QMainWindow):
         self.media_player.setSource(QUrl())
         QApplication.processEvents()
         self.publish_button.setEnabled(False)
-        self.status_badge.setText("●  正在发布结果")
+        self.status_badge.setText("■  正在发布结果")
         self.task_summary_label.setText("正在删除未勾选候选并发布正式结果……")
         try:
             published = publish_review_session(self._review_session, selected_ids)
         except (OSError, ValueError, RuntimeError) as exc:
-            self.status_badge.setText("●  导出失败")
+            self.status_badge.setText("■  导出失败")
             self.task_summary_label.setText(str(exc))
             self.publish_button.setEnabled(True)
             QMessageBox.critical(self, "导出失败", str(exc))
@@ -1843,7 +1899,7 @@ class MainWindow(QMainWindow):
         self._review_candidates.clear()
         self._viewed_candidate_ids.clear()
         self._clear_candidate_view()
-        self.status_badge.setText("●  导出完成")
+        self.status_badge.setText("■  导出完成")
         self.phase_label.setText(f"已导出 {len(published.clip_paths)} 个片段")
         self.task_summary_label.setText("人工确认后的片段已保存到输出目录。")
         QMessageBox.information(
@@ -2263,17 +2319,14 @@ def _make_arrow_icon(*, up: bool, color: str = "#e7eaed") -> QIcon:
     pixmap = QPixmap(18, 12)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor(color))
     if up:
-        points = [(9, 2), (2, 10), (16, 10)]
+        rectangles = ((8, 1, 2, 2), (6, 3, 6, 2), (4, 5, 10, 2), (2, 7, 14, 3))
     else:
-        points = [(2, 2), (16, 2), (9, 10)]
-    from PySide6.QtCore import QPoint
-    from PySide6.QtGui import QPolygon
-
-    painter.drawPolygon(QPolygon([QPoint(x, y) for x, y in points]))
+        rectangles = ((2, 2, 14, 3), (4, 5, 10, 2), (6, 7, 6, 2), (8, 9, 2, 2))
+    for rectangle in rectangles:
+        painter.drawRect(*rectangle)
     painter.end()
     return QIcon(pixmap)
 
@@ -2832,6 +2885,185 @@ QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
 QScrollBar::handle:vertical { background: #b7bec6; border-radius: 5px; min-height: 24px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 """
+
+
+PIXEL_COMMON_STYLE = """
+* {
+    font-family: "Microsoft YaHei UI", "Segoe UI", "Cascadia Mono";
+}
+QMenuBar, QMenu, QToolTip,
+QFrame#card, QFrame#workbenchCard, QFrame#topBar,
+QFrame#reviewPanel, QFrame#previewPanel, QFrame#statusPanel,
+QFrame#analysisFeedback, QFrame#parameterTile,
+QLabel#statusBadge, QLabel#analysisScope, QLabel#accelerationStatus,
+QLabel#videoPreview, QListWidget#candidateList,
+QVideoWidget#videoWidget, QStackedWidget#previewStack,
+QWidget#hitTimeline, QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox,
+QPushButton, QCheckBox::indicator, QProgressBar {
+    border-radius: 0px;
+}
+QLabel#eyebrow {
+    font-family: "Cascadia Mono", "Consolas";
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+QLabel#heroTitle {
+    font-family: "Microsoft YaHei UI", "Segoe UI";
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+QLabel#heroSubtitle { font-size: 12px; }
+QLabel#statusBadge {
+    border-width: 2px;
+    padding: 7px 11px;
+    font-family: "Microsoft YaHei UI", "Segoe UI";
+    font-weight: 700;
+}
+QFrame#card, QFrame#workbenchCard, QFrame#topBar,
+QFrame#reviewPanel, QFrame#previewPanel, QFrame#statusPanel,
+QFrame#analysisFeedback, QFrame#parameterTile {
+    border-width: 2px;
+}
+QListWidget#candidateList {
+    border-width: 2px;
+    padding: 4px;
+}
+QListWidget#candidateList::item {
+    border-radius: 0px;
+    border: 1px solid transparent;
+    padding: 9px 8px;
+    margin: 3px 1px;
+}
+QListWidget#candidateList::item:selected { border-width: 2px; }
+QVideoWidget#videoWidget, QStackedWidget#previewStack,
+QLabel#videoPreview, QWidget#hitTimeline { border-width: 2px; }
+QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {
+    border-width: 2px;
+    padding: 7px 10px;
+}
+QDoubleSpinBox, QSpinBox, QComboBox { padding-right: 36px; }
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus {
+    border-width: 2px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button,
+QComboBox::drop-down {
+    width: 30px;
+    border-left-width: 2px;
+}
+QToolButton#spinUpButton, QToolButton#spinDownButton {
+    border-radius: 0px;
+    border-left-width: 2px;
+}
+QPushButton {
+    border-width: 2px;
+    border-bottom-width: 4px;
+    padding: 7px 13px 9px 13px;
+    font-weight: 700;
+}
+QPushButton:pressed {
+    border-bottom-width: 2px;
+    padding-top: 9px;
+    padding-bottom: 7px;
+}
+QPushButton#primaryButton {
+    border-width: 2px;
+    border-bottom-width: 5px;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+QPushButton#primaryButton:pressed { border-bottom-width: 2px; }
+QCheckBox { spacing: 9px; }
+QCheckBox::indicator {
+    width: 15px;
+    height: 15px;
+    border-width: 2px;
+}
+QProgressBar {
+    background: transparent;
+    border: none;
+    color: transparent;
+}
+QScrollBar:vertical {
+    width: 14px;
+    margin: 1px;
+}
+QScrollBar::handle:vertical {
+    border-radius: 0px;
+    border-width: 2px;
+    min-height: 28px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+QLabel#percentLabel {
+    font-family: "Cascadia Mono", "Consolas";
+    font-size: 40px;
+    font-weight: 800;
+}
+QLabel#metricValue, QLabel#analysisFeedbackPercent {
+    font-family: "Cascadia Mono", "Consolas";
+    font-weight: 700;
+}
+"""
+
+PIXEL_DARK_STYLE = """
+QMenuBar { border-bottom: 2px solid #313944; }
+QMenu { border: 2px solid #4b5664; }
+QMenuBar::item:selected, QMenu::item:selected { background: #29323d; color: #c8ff73; }
+QFrame#card, QFrame#workbenchCard { border-color: #3e4855; }
+QFrame#topBar { border-color: #46515f; background: #11161c; }
+QFrame#reviewPanel, QFrame#previewPanel, QFrame#statusPanel { border-color: #3c4652; }
+QFrame#analysisFeedback { border-color: #79aa35; }
+QFrame#parameterTile { border-color: #353f4b; }
+QLabel#statusBadge { border-color: #79aa35; background: #17210f; color: #c8ff73; }
+QListWidget#candidateList { border-color: #45505d; background: #090c10; }
+QListWidget#candidateList::item:hover { background: #1a222b; border-color: #3f4b58; }
+QListWidget#candidateList::item:selected { background: #253419; border-color: #9add43; color: #f5ffe8; }
+QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox { border-color: #46515e; background: #0d1116; }
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus { border-color: #b9f45a; }
+QPushButton { background: #202832; border-color: #52606e; border-bottom-color: #080a0d; }
+QPushButton:hover { background: #2a3541; border-color: #718092; color: #ffffff; }
+QPushButton:pressed { background: #161c23; border-color: #3f4a56; }
+QPushButton#primaryButton { background: #b9f45a; color: #10150a; border-color: #e1ff9e; border-bottom-color: #4f761f; }
+QPushButton#primaryButton:hover { background: #c8ff73; border-color: #f0ffbe; }
+QPushButton#dangerButton { background: #3a2024; border-color: #8f4a50; border-bottom-color: #18090b; }
+QCheckBox::indicator:unchecked { background: #090c10; border-color: #63707e; }
+QCheckBox::indicator:checked { background: #b9f45a; border-color: #e1ff9e; }
+QScrollBar::handle:vertical { background: #3a4652; border: 2px solid #596675; }
+QToolTip { background: #111820; color: #f5f7f0; border: 2px solid #667583; padding: 5px; }
+"""
+
+PIXEL_LIGHT_STYLE = """
+QMenuBar { border-bottom: 2px solid #aab4bf; }
+QMenu { border: 2px solid #7e8995; }
+QMenuBar::item:selected, QMenu::item:selected { background: #dbe4ec; color: #355806; }
+QFrame#card, QFrame#workbenchCard { border-color: #9ca8b4; }
+QFrame#topBar { border-color: #9aa6b2; background: #ffffff; }
+QFrame#reviewPanel, QFrame#previewPanel, QFrame#statusPanel { border-color: #a5b0bb; }
+QFrame#analysisFeedback { border-color: #6e9b31; }
+QFrame#parameterTile { border-color: #aeb8c2; }
+QLabel#statusBadge { border-color: #6e9b31; background: #eef8df; color: #355806; }
+QListWidget#candidateList { border-color: #9ca8b4; background: #f7f9fb; }
+QListWidget#candidateList::item:hover { background: #e8edf2; border-color: #a6b1bc; }
+QListWidget#candidateList::item:selected { background: #e3f2cc; border-color: #6f9d31; color: #213508; }
+QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox { border-color: #9ca8b4; background: #ffffff; }
+QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus { border-color: #5f8e25; }
+QPushButton { background: #e4eaf0; border-color: #8996a2; border-bottom-color: #8a949e; }
+QPushButton:hover { background: #d8e1e9; border-color: #6f7d8a; color: #151a1f; }
+QPushButton:pressed { background: #cbd5de; border-color: #74818d; }
+QPushButton#primaryButton { background: #9bd34a; color: #17200c; border-color: #5f8e25; border-bottom-color: #4c741d; }
+QPushButton#primaryButton:hover { background: #aae15a; border-color: #527d20; }
+QPushButton#dangerButton { background: #ffe9e9; border-color: #bf7474; border-bottom-color: #9e5b5b; }
+QCheckBox::indicator:unchecked { background: #ffffff; border-color: #7f8b96; }
+QCheckBox::indicator:checked { background: #8fcf3d; border-color: #527d20; }
+QScrollBar::handle:vertical { background: #c4cdd5; border: 2px solid #929da8; }
+QToolTip { background: #ffffff; color: #20262c; border: 2px solid #7e8995; padding: 5px; }
+"""
+
+DARK_STYLE_SHEET += PIXEL_COMMON_STYLE + PIXEL_DARK_STYLE
+LIGHT_STYLE_SHEET += PIXEL_COMMON_STYLE + PIXEL_LIGHT_STYLE
 
 
 if __name__ == "__main__":
