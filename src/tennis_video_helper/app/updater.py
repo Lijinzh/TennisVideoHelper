@@ -11,10 +11,10 @@ from urllib.parse import unquote, urlparse
 
 
 GITHUB_LATEST_RELEASE_API = (
-    "https://api.github.com/repos/Lijinzh/TennisVideoHelper-Releases/releases/latest"
+    "https://api.github.com/repos/Lijinzh/TennisVideoHelper/releases/latest"
 )
 REPOSITORY_OWNER = "Lijinzh"
-REPOSITORY_NAME = "TennisVideoHelper-Releases"
+REPOSITORY_NAME = "TennisVideoHelper"
 MIN_INSTALLER_BYTES = 1 * 1024 * 1024
 MAX_INSTALLER_BYTES = 600 * 1024 * 1024
 _VERSION_PATTERN = re.compile(

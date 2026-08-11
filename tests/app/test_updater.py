@@ -19,7 +19,7 @@ def _release_payload(*, version: str = "0.1.2", digest: str = "a" * 64):
         "draft": False,
         "prerelease": False,
         "html_url": (
-            "https://github.com/Lijinzh/TennisVideoHelper-Releases/"
+            "https://github.com/Lijinzh/TennisVideoHelper/"
             f"releases/tag/v{version}"
         ),
         "body": "更新说明",
@@ -29,7 +29,7 @@ def _release_payload(*, version: str = "0.1.2", digest: str = "a" * 64):
                 "size": 10 * 1024 * 1024,
                 "digest": f"sha256:{digest}",
                 "browser_download_url": (
-                    "https://github.com/Lijinzh/TennisVideoHelper-Releases/releases/"
+                    "https://github.com/Lijinzh/TennisVideoHelper/releases/"
                     f"download/v{version}/{asset_name}"
                 ),
             }
