@@ -718,8 +718,38 @@ def test_pixel_theme_uses_segmented_progress_and_readable_chinese_font() -> None
     labels = [label.text() for label in window.findChildren(gui_module.QLabel)]
     assert "■ AI TENNIS WORKFLOW / PIXEL MODE" in labels
     assert window.status_badge.text().startswith("■")
+    assert isinstance(window.motion_rail, gui_module.PixelMotionRail)
+    assert "border-bottom-width: 6px" in window.styleSheet()
+    assert "border-top-color: #8191a1" in window.styleSheet()
 
     window.close()
+    app.processEvents()
+
+
+def test_pixel_motion_can_be_disabled_and_is_persisted() -> None:
+    app = QApplication.instance() or QApplication([])
+    settings = gui_module._application_settings()
+    previous = settings.value("appearance/motion_enabled", None)
+    window = MainWindow()
+
+    original_phase = window.motion_rail._phase
+    window.motion_rail.advance_frame()
+    assert window.motion_rail._phase != original_phase
+
+    window.motion_action.setChecked(False)
+    assert window.motion_rail.animation_enabled is False
+    assert window.motion_rail._timer.isActive() is False
+    assert settings.value("appearance/motion_enabled", type=bool) is False
+
+    window.motion_action.setChecked(True)
+    assert window.motion_rail.animation_enabled is True
+    assert settings.value("appearance/motion_enabled", type=bool) is True
+
+    window.close()
+    if previous is None:
+        settings.remove("appearance/motion_enabled")
+    else:
+        settings.setValue("appearance/motion_enabled", previous)
     app.processEvents()
 
 

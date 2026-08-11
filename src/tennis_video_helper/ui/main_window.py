@@ -84,6 +84,7 @@ from tennis_video_helper.review.session import (
 )
 from tennis_video_helper.media.runtime import subprocess_no_window_kwargs
 from tennis_video_helper.resources import asset_path
+from tennis_video_helper.ui.pixel_effects import PixelMotionRail
 
 
 VIDEO_FILE_FILTER = (
@@ -99,6 +100,13 @@ CANDIDATE_VIEWED_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 
 def _application_settings() -> QSettings:
     return QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+
+
+def _settings_bool(settings, key: str, default: bool) -> bool:
+    value = settings.value(key, default)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "no", "off"}
+    return bool(value)
 
 
 def _system_uses_dark_theme() -> bool:
@@ -707,6 +715,9 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.settings = _application_settings()
+        self._motion_enabled = _settings_bool(
+            self.settings, "appearance/motion_enabled", True
+        )
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.process.readyReadStandardOutput.connect(self._read_process_output)
@@ -769,6 +780,8 @@ class MainWindow(QMainWindow):
         self.root_layout = root
 
         root.addLayout(self._build_header())
+        self.motion_rail = PixelMotionRail(animation_enabled=self._motion_enabled)
+        root.addWidget(self.motion_rail)
         root.addWidget(self._build_top_bar())
         self.workbench_card = self._build_workbench_card()
         root.addWidget(self.workbench_card, 1)
@@ -854,6 +867,12 @@ class MainWindow(QMainWindow):
         self.parameters_action = QAction("参数调节", self)
         self.parameters_action.triggered.connect(self._show_parameter_panel)
         view_menu.addAction(self.parameters_action)
+        self.motion_action = QAction("像素动画", self)
+        self.motion_action.setCheckable(True)
+        self.motion_action.setChecked(self._motion_enabled)
+        self.motion_action.setToolTip("显示或关闭顶部流水灯与网球小人动画")
+        self.motion_action.toggled.connect(self._set_motion_enabled)
+        view_menu.addAction(self.motion_action)
 
         help_menu = self.menuBar().addMenu("帮助(&H)")
         about_action = QAction("关于 Tennis Video Helper", self)
@@ -1825,6 +1844,12 @@ class MainWindow(QMainWindow):
 
     def _system_theme_changed(self, *_args) -> None:
         self._apply_theme(_system_uses_dark_theme())
+
+    def _set_motion_enabled(self, enabled: bool) -> None:
+        self._motion_enabled = bool(enabled)
+        self.settings.setValue("appearance/motion_enabled", self._motion_enabled)
+        if hasattr(self, "motion_rail"):
+            self.motion_rail.set_animation_enabled(self._motion_enabled)
 
     def _apply_theme(self, dark: bool) -> None:
         self._dark_theme = dark
@@ -2892,7 +2917,8 @@ QFrame#analysisFeedback, QFrame#parameterTile,
 QLabel#statusBadge, QLabel#analysisScope, QLabel#accelerationStatus,
 QLabel#videoPreview, QListWidget#candidateList,
 QVideoWidget#videoWidget, QStackedWidget#previewStack,
-QWidget#hitTimeline, QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox,
+QWidget#hitTimeline, QWidget#pixelMotionRail,
+QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox,
 QPushButton, QCheckBox::indicator, QProgressBar {
     border-radius: 0px;
 }
@@ -2952,24 +2978,29 @@ QToolButton#spinUpButton, QToolButton#spinDownButton {
     border-left-width: 2px;
 }
 QPushButton {
-    border-width: 2px;
-    border-bottom-width: 4px;
-    padding: 7px 13px 9px 13px;
+    border-style: solid;
+    border-width: 3px;
+    border-bottom-width: 6px;
+    padding: 7px 14px 10px 14px;
     font-weight: 700;
 }
 QPushButton:pressed {
-    border-bottom-width: 2px;
+    border-top-width: 5px;
+    border-bottom-width: 3px;
     padding-top: 9px;
-    padding-bottom: 7px;
+    padding-bottom: 8px;
 }
 QPushButton#primaryButton {
-    border-width: 2px;
-    border-bottom-width: 5px;
+    border-width: 3px;
+    border-bottom-width: 7px;
     font-size: 14px;
     font-weight: 800;
     letter-spacing: 1px;
 }
-QPushButton#primaryButton:pressed { border-bottom-width: 2px; }
+QPushButton#primaryButton:pressed {
+    border-top-width: 6px;
+    border-bottom-width: 3px;
+}
 QCheckBox { spacing: 9px; }
 QCheckBox::indicator {
     width: 15px;
@@ -3003,26 +3034,35 @@ QLabel#metricValue, QLabel#analysisFeedbackPercent {
 """
 
 PIXEL_DARK_STYLE = """
-QMenuBar { border-bottom: 2px solid #313944; }
+QMenuBar { border-bottom: 2px solid #313944; background: #080b10; }
 QMenu { border: 2px solid #4b5664; }
-QMenuBar::item:selected, QMenu::item:selected { background: #29323d; color: #c8ff73; }
-QFrame#card, QFrame#workbenchCard { border-color: #3e4855; }
-QFrame#topBar { border-color: #46515f; background: #11161c; }
+QMenuBar::item:selected, QMenu::item:selected { background: #29323d; color: #baff39; }
+QFrame#card, QFrame#workbenchCard { border-color: #3e4855; border-top-color: #667482; }
+QFrame#topBar { border-color: #46515f; border-left-color: #24d8ff; border-right-color: #ff3b9d; background: #11161c; }
 QFrame#reviewPanel, QFrame#previewPanel, QFrame#statusPanel { border-color: #3c4652; }
 QFrame#analysisFeedback { border-color: #79aa35; }
 QFrame#parameterTile { border-color: #353f4b; }
-QLabel#statusBadge { border-color: #79aa35; background: #17210f; color: #c8ff73; }
+QLabel#statusBadge { border-color: #79aa35; border-left-color: #24d8ff; background: #17210f; color: #c8ff73; }
 QListWidget#candidateList { border-color: #45505d; background: #090c10; }
 QListWidget#candidateList::item:hover { background: #1a222b; border-color: #3f4b58; }
 QListWidget#candidateList::item:selected { background: #253419; border-color: #9add43; color: #f5ffe8; }
 QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox { border-color: #46515e; background: #0d1116; }
 QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus { border-color: #b9f45a; }
-QPushButton { background: #202832; border-color: #52606e; border-bottom-color: #080a0d; }
-QPushButton:hover { background: #2a3541; border-color: #718092; color: #ffffff; }
-QPushButton:pressed { background: #161c23; border-color: #3f4a56; }
-QPushButton#primaryButton { background: #b9f45a; color: #10150a; border-color: #e1ff9e; border-bottom-color: #4f761f; }
-QPushButton#primaryButton:hover { background: #c8ff73; border-color: #f0ffbe; }
-QPushButton#dangerButton { background: #3a2024; border-color: #8f4a50; border-bottom-color: #18090b; }
+QPushButton {
+    background: #202832;
+    border-top-color: #8191a1;
+    border-left-color: #6a7887;
+    border-right-color: #080a0d;
+    border-bottom-color: #080a0d;
+}
+QPushButton:hover { background: #2a3541; border-top-color: #a8b7c5; border-left-color: #8798a8; color: #ffffff; }
+QPushButton:pressed { background: #161c23; border-top-color: #080a0d; border-left-color: #080a0d; border-right-color: #596775; border-bottom-color: #596775; }
+QPushButton:disabled { background: #161b21; color: #59636d; border-top-color: #303944; border-left-color: #303944; border-right-color: #090b0e; border-bottom-color: #090b0e; }
+QPushButton#primaryButton { background: #baff39; color: #10150a; border-top-color: #edffb7; border-left-color: #d8ff82; border-right-color: #416111; border-bottom-color: #416111; }
+QPushButton#primaryButton:hover { background: #c8ff73; border-top-color: #ffffff; border-left-color: #edffb7; }
+QPushButton#primaryButton:pressed { background: #9dda31; border-top-color: #416111; border-left-color: #416111; border-right-color: #d8ff82; border-bottom-color: #d8ff82; }
+QPushButton#dangerButton { background: #48232d; color: #ffc2d9; border-top-color: #a95d70; border-left-color: #884858; border-right-color: #18090b; border-bottom-color: #18090b; }
+QPushButton#dangerButton:pressed { border-top-color: #18090b; border-left-color: #18090b; border-right-color: #a95d70; border-bottom-color: #a95d70; }
 QCheckBox::indicator:unchecked { background: #090c10; border-color: #63707e; }
 QCheckBox::indicator:checked { background: #b9f45a; border-color: #e1ff9e; }
 QScrollBar::handle:vertical { background: #3a4652; border: 2px solid #596675; }
@@ -3030,26 +3070,29 @@ QToolTip { background: #111820; color: #f5f7f0; border: 2px solid #667583; paddi
 """
 
 PIXEL_LIGHT_STYLE = """
-QMenuBar { border-bottom: 2px solid #aab4bf; }
+QMenuBar { border-bottom: 2px solid #aab4bf; background: #edf2f6; }
 QMenu { border: 2px solid #7e8995; }
 QMenuBar::item:selected, QMenu::item:selected { background: #dbe4ec; color: #355806; }
-QFrame#card, QFrame#workbenchCard { border-color: #9ca8b4; }
-QFrame#topBar { border-color: #9aa6b2; background: #ffffff; }
+QFrame#card, QFrame#workbenchCard { border-color: #9ca8b4; border-top-color: #657581; }
+QFrame#topBar { border-color: #9aa6b2; border-left-color: #007c98; border-right-color: #b51e68; background: #ffffff; }
 QFrame#reviewPanel, QFrame#previewPanel, QFrame#statusPanel { border-color: #a5b0bb; }
 QFrame#analysisFeedback { border-color: #6e9b31; }
 QFrame#parameterTile { border-color: #aeb8c2; }
-QLabel#statusBadge { border-color: #6e9b31; background: #eef8df; color: #355806; }
+QLabel#statusBadge { border-color: #6e9b31; border-left-color: #007c98; background: #eef8df; color: #355806; }
 QListWidget#candidateList { border-color: #9ca8b4; background: #f7f9fb; }
 QListWidget#candidateList::item:hover { background: #e8edf2; border-color: #a6b1bc; }
 QListWidget#candidateList::item:selected { background: #e3f2cc; border-color: #6f9d31; color: #213508; }
 QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox { border-color: #9ca8b4; background: #ffffff; }
 QLineEdit:focus, QDoubleSpinBox:focus, QSpinBox:focus, QComboBox:focus { border-color: #5f8e25; }
-QPushButton { background: #e4eaf0; border-color: #8996a2; border-bottom-color: #8a949e; }
-QPushButton:hover { background: #d8e1e9; border-color: #6f7d8a; color: #151a1f; }
-QPushButton:pressed { background: #cbd5de; border-color: #74818d; }
-QPushButton#primaryButton { background: #9bd34a; color: #17200c; border-color: #5f8e25; border-bottom-color: #4c741d; }
-QPushButton#primaryButton:hover { background: #aae15a; border-color: #527d20; }
-QPushButton#dangerButton { background: #ffe9e9; border-color: #bf7474; border-bottom-color: #9e5b5b; }
+QPushButton { background: #e4eaf0; border-top-color: #ffffff; border-left-color: #ffffff; border-right-color: #74818d; border-bottom-color: #74818d; }
+QPushButton:hover { background: #d8e1e9; border-top-color: #ffffff; border-left-color: #eef3f7; color: #151a1f; }
+QPushButton:pressed { background: #cbd5de; border-top-color: #74818d; border-left-color: #74818d; border-right-color: #ffffff; border-bottom-color: #ffffff; }
+QPushButton:disabled { background: #e8ecef; color: #a1a9b0; border-top-color: #f7f9fa; border-left-color: #f7f9fa; border-right-color: #bfc7ce; border-bottom-color: #bfc7ce; }
+QPushButton#primaryButton { background: #9bdc34; color: #17200c; border-top-color: #e4ffae; border-left-color: #caff73; border-right-color: #466f13; border-bottom-color: #466f13; }
+QPushButton#primaryButton:hover { background: #aae75a; border-top-color: #f4ffd8; border-left-color: #dcff99; }
+QPushButton#primaryButton:pressed { background: #86c22a; border-top-color: #466f13; border-left-color: #466f13; border-right-color: #dcff99; border-bottom-color: #dcff99; }
+QPushButton#dangerButton { background: #ffe1ec; color: #8c174a; border-top-color: #ffffff; border-left-color: #fff5f9; border-right-color: #a84b72; border-bottom-color: #a84b72; }
+QPushButton#dangerButton:pressed { border-top-color: #a84b72; border-left-color: #a84b72; border-right-color: #fff5f9; border-bottom-color: #fff5f9; }
 QCheckBox::indicator:unchecked { background: #ffffff; border-color: #7f8b96; }
 QCheckBox::indicator:checked { background: #8fcf3d; border-color: #527d20; }
 QScrollBar::handle:vertical { background: #c4cdd5; border: 2px solid #929da8; }
