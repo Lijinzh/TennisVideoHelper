@@ -25,6 +25,11 @@ SetupIconFile=..\assets\icons\app_icon.ico
 [Files]
 Source: "..\dist\TennisVideoHelper-Light\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+; Clear only packaged internals so upgrades cannot retain obsolete libraries.
+; User outputs and settings outside _internal remain untouched.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon

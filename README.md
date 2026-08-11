@@ -201,6 +201,15 @@ AMD XDNA NPU 目前未默认启用：本机驱动低于当前 Ryzen AI 运行时
 
 Compact 输出位于 `dist\TennisVideoHelper-Compact`。Full 和 Compact 可以同时保留，分别面向绝对性能和下载体积优先的用户。
 
+面向普通用户分发时，建议使用 Light 安装版。它使用 DirectML/ONNX 视觉推理，不内置数 GiB 的 PyTorch CUDA 与 TensorRT 工具链；FFmpeg 建议使用同时支持 NVENC/NVDEC 的 [Gyan Essentials Build](https://www.gyan.dev/ffmpeg/builds/)：
+
+```powershell
+.\scripts\build_light_installer.ps1 `
+    -FfmpegDirectory "C:\path\to\ffmpeg-essentials\bin"
+```
+
+安装包输出到 `dist\installer\TennisVideoHelper-Setup.exe`。构建脚本只收集 `ffmpeg.exe`、`ffprobe.exe` 和许可说明，并移除应用未使用的 Qt QML、Quick、PDF、虚拟键盘与翻译组件。升级安装会清理旧版 `_internal` 程序文件，但保留安装目录中的用户输出和外部设置。
+
 用于过滤讲话手势的 `assets/models/yolo11n.onnx` 球拍检测模型约 10.8 MiB，Full 与 Light/Compact 安装版都会直接内置，不需要用户联网下载，也不会显著改变安装包体积。
 
 ## 可调参数

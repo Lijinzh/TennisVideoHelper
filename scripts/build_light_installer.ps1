@@ -24,20 +24,33 @@ if (-not $InnoCompiler) {
 $FfmpegDirectory = (Resolve-Path -LiteralPath $FfmpegDirectory).Path
 foreach ($Name in @("ffmpeg.exe", "ffprobe.exe")) {
     if (-not (Test-Path -LiteralPath (Join-Path $FfmpegDirectory $Name))) {
-        throw "共享 FFmpeg 目录缺少 $Name"
+        throw "FFmpeg directory is missing $Name"
     }
 }
 
 New-Item -ItemType Directory -Force -Path $RuntimeDirectory | Out-Null
 Get-ChildItem -LiteralPath $RuntimeDirectory -File -ErrorAction SilentlyContinue |
     ForEach-Object { [System.IO.File]::Delete($_.FullName) }
-Get-ChildItem -LiteralPath $FfmpegDirectory -File |
-    Copy-Item -Destination $RuntimeDirectory -Force
+foreach ($Name in @("ffmpeg.exe", "ffprobe.exe")) {
+    Copy-Item -LiteralPath (Join-Path $FfmpegDirectory $Name) `
+        -Destination $RuntimeDirectory -Force
+}
+$FfmpegDistributionDirectory = Split-Path -Parent $FfmpegDirectory
+foreach ($Notice in @(
+    @{ Source = "LICENSE"; Target = "FFmpeg-LICENSE.txt" },
+    @{ Source = "README.txt"; Target = "FFmpeg-README.txt" }
+)) {
+    $NoticeSource = Join-Path $FfmpegDistributionDirectory $Notice.Source
+    if (Test-Path -LiteralPath $NoticeSource) {
+        Copy-Item -LiteralPath $NoticeSource `
+            -Destination (Join-Path $RuntimeDirectory $Notice.Target) -Force
+    }
+}
 
 Push-Location $ProjectRoot
 try {
     uv venv --clear $BuildVenv --python 3.12
-    if ($LASTEXITCODE -ne 0) { throw "创建轻量构建环境失败" }
+    if ($LASTEXITCODE -ne 0) { throw "Failed to create the light build environment" }
     uv pip install --python $BuildPython `
         "numpy>=2.0" `
         "opencv-python>=4.11" `
@@ -46,24 +59,60 @@ try {
         "typer>=0.16" `
         "onnxruntime-directml>=1.22" `
         "pyinstaller>=6.21"
-    if ($LASTEXITCODE -ne 0) { throw "安装轻量构建依赖失败" }
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install light build dependencies" }
     uv pip install --python $BuildPython --no-deps -e .
-    if ($LASTEXITCODE -ne 0) { throw "安装项目失败" }
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install the project" }
 
     & $BuildPython -m PyInstaller --noconfirm --clean packaging\tennis_video_helper_light.spec
-    if ($LASTEXITCODE -ne 0) { throw "轻量程序构建失败" }
+    if ($LASTEXITCODE -ne 0) { throw "Failed to build the light application" }
 
     $Portable = Join-Path $ProjectRoot "dist\TennisVideoHelper-Light"
     $BundledRuntime = Join-Path $Portable "_internal\runtime"
     Get-ChildItem -LiteralPath $BundledRuntime -File |
-        Where-Object { $_.Name -notin @("ffmpeg.exe", "ffprobe.exe") } |
+        Where-Object {
+            $_.Name -notin @(
+                "ffmpeg.exe",
+                "ffprobe.exe",
+                "FFmpeg-LICENSE.txt",
+                "FFmpeg-README.txt"
+            )
+        } |
         ForEach-Object { [System.IO.File]::Delete($_.FullName) }
 
+    $PySideDirectory = Join-Path $Portable "_internal\PySide6"
+    $UnusedQtPaths = @(
+        "translations",
+        "plugins\platforminputcontexts",
+        "Qt6Pdf.dll",
+        "Qt6PdfWidgets.dll",
+        "Qt6Qml.dll",
+        "Qt6QmlMeta.dll",
+        "Qt6QmlModels.dll",
+        "Qt6QmlWorkerScript.dll",
+        "Qt6Quick.dll",
+        "Qt6QuickWidgets.dll",
+        "Qt6VirtualKeyboard.dll",
+        "QtPdf.pyd",
+        "QtPdfWidgets.pyd",
+        "QtQml.pyd",
+        "QtQuick.pyd",
+        "QtQuickWidgets.pyd"
+    )
+    foreach ($RelativePath in $UnusedQtPaths) {
+        $Target = Join-Path $PySideDirectory $RelativePath
+        if ([System.IO.Directory]::Exists($Target)) {
+            [System.IO.Directory]::Delete($Target, $true)
+        }
+        elseif ([System.IO.File]::Exists($Target)) {
+            [System.IO.File]::Delete($Target)
+        }
+    }
+
     if (-not (Test-Path -LiteralPath $InnoCompiler)) {
-        throw "找不到 Inno Setup 编译器：$InnoCompiler"
+        throw "Inno Setup compiler was not found: $InnoCompiler"
     }
     & $InnoCompiler packaging\TennisVideoHelper.iss
-    if ($LASTEXITCODE -ne 0) { throw "安装包生成失败" }
+    if ($LASTEXITCODE -ne 0) { throw "Failed to build the installer" }
 
     $Installer = Join-Path $ProjectRoot "dist\installer\TennisVideoHelper-Setup.exe"
     $InstalledBytes = (Get-ChildItem -LiteralPath $Portable -File -Recurse | Measure-Object Length -Sum).Sum
