@@ -1,8 +1,9 @@
-"""Convert the finalized transparent PNG into a multi-resolution Windows ICO."""
+"""Convert the finalized pixel-art PNG into a multi-resolution Windows ICO."""
 
 from pathlib import Path
 
 from PIL import Image
+
 ROOT = Path(__file__).resolve().parents[1]
 PNG_TARGET = ROOT / "assets" / "app_icon.png"
 ICO_TARGET = ROOT / "assets" / "app_icon.ico"
