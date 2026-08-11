@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tennis Video Helper：自动识别网球长回合、逐段预览击球点并安全导出精选视频的 Windows 桌面工具。">
+  <meta name="theme-color" content="#292756">
+  <meta property="og:title" content="Tennis Video Helper · 网球回合自动精选">
+  <meta property="og:description" content="声音、骨架与球拍检测共同确认击球，自动筛选值得保留的网球回合。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://lijinzh.github.io/TennisVideoHelper/">
+  <title>Tennis Video Helper · 网球回合自动精选</title>
+  <link rel="canonical" href="https://lijinzh.github.io/TennisVideoHelper/">
+  <link rel="icon" type="image/png" href="assets/images/tennis-video-helper/app-icon.png">
+  <link rel="stylesheet" href="pixel-preview.css?v=20260812-tennis">
+  <link rel="stylesheet" href="tennis-video-helper.css?v=20260812-v2">
+  <script src="pixel-preview.js?v=20260812-tennis" defer></script>
+  <script src="tennis-video-helper.js?v=20260812-v2" defer></script>
+</head>
+<body class="pixel-site tennis-site">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+  <div class="pixel-ticker" aria-hidden="true">
+    <div>TENNIS VIDEO HELPER // AUDIO + POSE + RACKET // FIND THE RALLY // KEEP THE MOMENT // TENNIS VIDEO HELPER //</div>
+  </div>
+
+  <header class="pixel-header tennis-header" data-header>
+    <a class="pixel-brand tennis-brand" href="index.html" aria-label="Tennis Video Helper 首页">
+      <span class="tennis-brand__icon"><img src="assets/images/tennis-video-helper/app-icon.png" width="40" height="40" alt=""></span>
+      <span><strong>TENNIS VIDEO HELPER</strong><small>RALLY SELECTOR / v0.1.0</small></span>
+    </a>
+    <button class="pixel-menu" type="button" data-pixel-menu aria-expanded="false" aria-controls="tennis-nav">MENU</button>
+    <nav class="pixel-nav tennis-nav" id="tennis-nav" data-pixel-nav aria-label="页面导航">
+      <a href="#overview">首页</a>
+      <a href="#features">功能</a>
+      <a href="#settings">设置</a>
+      <a href="#progress">进度</a>
+      <a href="#install">安装</a>
+    </nav>
+    <a class="tennis-back-link" href="https://github.com/Lijinzh/TennisVideoHelper" target="_blank" rel="noopener noreferrer"><span>LIJINZH / GITHUB</span><strong>查看项目仓库</strong></a>
+  </header>
+
+  <main id="main-content">
+    <section class="tennis-hero" id="overview" aria-labelledby="tennis-title">
+      <div class="tennis-hero__copy" data-pixel-reveal>
+        <p class="tennis-kicker"><span>READY TO INSTALL</span> WINDOWS 10 / 11</p>
+        <h1 id="tennis-title">把长视频里的<br><em>精彩回合</em>挑出来</h1>
+        <p class="tennis-hero__lead">声音找到候选，人体骨架确认挥拍，球拍检测过滤走路和摆臂。分析完成后，在软件里逐段预览、查看击球点，再勾选导出。</p>
+        <div class="tennis-hero__actions">
+          <a class="tennis-button tennis-button--primary" data-tv-download href="https://github.com/Lijinzh/TennisVideoHelper/releases/download/v0.1.0/TennisVideoHelper-Setup-0.1.0.exe" download="TennisVideoHelper-Setup-0.1.0.exe" rel="noopener noreferrer">下载 Windows 安装包</a>
+          <a class="tennis-button" href="#install">查看安装步骤</a>
+        </div>
+        <div class="tennis-install-note" role="status" data-download-status>
+          <span>v0.1.0</span><strong>156.2 MiB</strong><small>内置运行环境、模型与 FFmpeg，无需另装 Python。</small>
+        </div>
+        <p class="tennis-private-note">当前安装包位于私有 GitHub Release；请先登录拥有仓库权限的 GitHub 账户。公开下载镜像正在规划中。</p>
+      </div>
+
+      <figure class="tennis-hero__screen" data-pixel-reveal>
+        <div class="tennis-window-bar"><span>RALLY_REVIEW.EXE</span><i></i><i></i><i></i></div>
+        <img src="assets/images/tennis-video-helper/app-review.webp" width="1440" height="900" alt="Tennis Video Helper 候选回合预览、击球点时间线与导出界面" fetchpriority="high">
+        <figcaption><span>LIVE UI</span> 候选列表 / 视频预览 / 击球时间线 / GPU 状态 / 勾选导出</figcaption>
+      </figure>
+    </section>
+
+    <section class="tennis-signal-strip" aria-label="软件能力概览">
+      <article><span>01</span><div><strong>音画融合</strong><small>声音 + 骨架 + 球拍</small></div></article>
+      <article><span>02</span><div><strong>人工复核</strong><small>逐段播放与击球跳转</small></div></article>
+      <article><span>03</span><div><strong>GPU 加速</strong><small>NVDEC / CUDA / NVENC</small></div></article>
+      <article><span>04</span><div><strong>源视频只读</strong><small>验证成功后再发布结果</small></div></article>
+    </section>
+
+    <section class="tennis-intro" aria-labelledby="intro-title">
+      <div class="tennis-intro__number" aria-hidden="true">01 / 05</div>
+      <div data-pixel-reveal>
+        <p class="tennis-kicker"><span>WHY IT EXISTS</span> 少翻进度条，多看真正的回合</p>
+        <h2 id="intro-title">训练视频很长，值得保留的回合却很分散。</h2>
+      </div>
+      <p data-pixel-reveal>Tennis Video Helper 把“自动发现”和“人工决定”分开：模型负责找候选，人负责最后确认。它不会替你删除源视频，也不会把一次声音或一次摆臂直接当成完整回合。</p>
+    </section>
+
+    <section class="tennis-feature-section" id="features" aria-labelledby="features-title">
+      <header class="tennis-section-heading" data-pixel-reveal>
+        <p class="tennis-kicker"><span>CORE LOOP</span> 从整段素材到精选片段</p>
+        <h2 id="features-title">四步完成一次网球视频精选</h2>
+      </header>
+
+      <div class="tennis-feature-flow">
+        <article class="tennis-feature-row" data-pixel-reveal>
+          <div class="tennis-feature-row__index">AUDIO</div>
+          <div><h3>先听见可能的击球</h3><p>音频瞬态快速扫描整段视频，只负责提出候选时间窗。脚步声、邻场击球和孤立噪声不能独立开始或延长回合。</p></div>
+          <div class="tennis-pixel-diagram tennis-pixel-diagram--audio" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </article>
+        <article class="tennis-feature-row tennis-feature-row--dark" data-pixel-reveal>
+          <div class="tennis-feature-row__index">VISION</div>
+          <div><h3>再确认挥拍和球拍</h3><p>近端球员的手腕、肘部和躯干轨迹共同判断挥拍；球拍检测进一步排除走路持拍、普通摆臂和靠近镜头的无关动作。</p></div>
+          <div class="tennis-racket-icon" aria-hidden="true"><span></span><i></i></div>
+        </article>
+        <article class="tennis-feature-row" data-pixel-reveal>
+          <div class="tennis-feature-row__index">REVIEW</div>
+          <div><h3>在时间线上逐点击球复核</h3><p>每个候选片段都能直接播放；绿色方块显示模型确认的击球点，点击时间线即可跳转，0.25× 至 4.00× 倍速自由检查。</p></div>
+          <div class="tennis-hit-line" aria-hidden="true"><b></b><span></span><span></span><span></span><span></span><span></span><span></span></div>
+        </article>
+        <article class="tennis-feature-row tennis-feature-row--accent" data-pixel-reveal>
+          <div class="tennis-feature-row__index">EXPORT</div>
+          <div><h3>只导出你勾选的片段</h3><p>默认最高 1080p 并保留原始帧率关系，也可以选择原画质。覆盖同名旧结果时，会先完整生成并验证新结果，成功后再替换。</p></div>
+          <div class="tennis-export-icon" aria-hidden="true"><span>✓</span><i></i></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="tennis-settings-section" id="settings" aria-labelledby="settings-title">
+      <div class="tennis-settings-section__copy" data-pixel-reveal>
+        <p class="tennis-kicker"><span>TUNE YOUR MATCH</span> 普通用户也能看懂的设置</p>
+        <h2 id="settings-title">保留更长回合，还是寻找更多短回合，由你决定。</h2>
+        <p>参数页把识别、性能和导出设置放在同一个像素工作台中，每项都说明“调大”和“调小”会发生什么。</p>
+        <dl class="tennis-setting-list">
+          <div><dt>最短回合</dt><dd>默认 10 秒</dd></div>
+          <div><dt>最少击球</dt><dd>默认 3 次</dd></div>
+          <div><dt>前置 / 后置保留</dt><dd>2 秒 / 3 秒</dd></div>
+          <div><dt>声音 / 动作灵敏度</dt><dd>分别调节召回与误检</dd></div>
+          <div><dt>GPU 后端</dt><dd>自动、ONNX、TensorRT、PyTorch CUDA</dd></div>
+          <div><dt>输出策略</dt><dd>1080p、原画质、覆盖同名旧结果</dd></div>
+        </dl>
+      </div>
+      <figure class="tennis-settings-screen" data-pixel-reveal>
+        <img src="assets/images/tennis-video-helper/app-settings.webp" width="1440" height="900" alt="Tennis Video Helper 参数设置界面">
+        <figcaption>PARAMETER DECK // 所有关键设置均可在桌面界面内完成</figcaption>
+      </figure>
+    </section>
+
+    <section class="tennis-progress-section" id="progress" aria-labelledby="progress-title">
+      <header class="tennis-section-heading tennis-section-heading--split" data-pixel-reveal>
+        <div><p class="tennis-kicker"><span>DEV LOG</span> 研发进度</p><h2 id="progress-title">v0.1.0 已发布，识别与性能仍在持续验证</h2></div>
+        <p>进度按“已经验证”“当前发布”“下一步计划”区分；性能数字来自固定真实素材回归，不把一次偶然结果写成承诺。</p>
+      </header>
+
+      <ol class="tennis-timeline">
+        <li class="is-done" data-pixel-reveal><span>2026.07</span><div><strong>多模态识别基线</strong><p>完成声音候选、近端骨架动作、球拍确认、回合状态机、NVENC 导出和报告结构。</p></div></li>
+        <li class="is-done" data-pixel-reveal><span>2026.08</span><div><strong>复核工作台与安全覆盖</strong><p>加入候选片段播放、击球时间线、倍速、勾选导出；新结果验证成功后才替换旧目录。</p></div></li>
+        <li class="is-current" data-pixel-reveal><span>v0.1.0</span><div><strong>首个 Windows 安装版</strong><p>像素风桌面界面、轻量 ONNX 安装路径和精简 FFmpeg 已打包；安装包约 156.2 MiB。</p></div></li>
+        <li class="is-done" data-pixel-reveal><span>REAL VIDEO</span><div><strong>声音聚焦性能回归</strong><p>120 秒素材从 13.35 秒降至 5.23 秒，8/8 击球保留；另一段素材保持 13/13 击球。</p></div></li>
+        <li data-pixel-reveal><span>NEXT</span><div><strong>公开下载与发行可信度</strong><p>规划公开安装包镜像、代码签名、更多球场与机位回归；NPU 仅在端到端净收益达到门槛后考虑加入。</p></div></li>
+      </ol>
+    </section>
+
+    <section class="tennis-install-section" id="install" aria-labelledby="install-title">
+      <div class="tennis-install-section__copy" data-pixel-reveal>
+        <p class="tennis-kicker"><span>INSTALL STATION</span> WINDOWS x64</p>
+        <h2 id="install-title">下载，校验，安装。三步开始筛选。</h2>
+        <p>当前安装包没有数字签名，Windows SmartScreen 可能显示未知发布者。只从本页固定版本链接下载，并在安装前核对 SHA-256。</p>
+        <div class="tennis-install-actions">
+          <a class="tennis-button tennis-button--light" data-tv-download href="https://github.com/Lijinzh/TennisVideoHelper/releases/download/v0.1.0/TennisVideoHelper-Setup-0.1.0.exe" download="TennisVideoHelper-Setup-0.1.0.exe" rel="noopener noreferrer">下载 TennisVideoHelper-Setup-0.1.0.exe</a>
+          <a class="tennis-text-link" href="https://github.com/Lijinzh/TennisVideoHelper/releases/tag/v0.1.0" target="_blank" rel="noopener noreferrer">查看 v0.1.0 发布页 →</a>
+        </div>
+      </div>
+
+      <ol class="tennis-install-steps" data-pixel-reveal>
+        <li><span>01</span><div><strong>下载安装包</strong><p>文件名应为 <code>TennisVideoHelper-Setup-0.1.0.exe</code>，大小约 156.2 MiB。</p></div></li>
+        <li><span>02</span><div><strong>核对 SHA-256</strong><p>PowerShell 运行 <code>Get-FileHash .\TennisVideoHelper-Setup-0.1.0.exe</code>。</p></div></li>
+        <li><span>03</span><div><strong>完成安装</strong><p>确认哈希一致后双击安装；若 SmartScreen 出现提示，选择“更多信息”查看文件名后再决定运行。</p></div></li>
+      </ol>
+
+      <div class="tennis-hash-panel" data-pixel-reveal>
+        <div><span>SHA256 / v0.1.0</span><strong data-sha-value>1D5101A6F1341D1AF6BAEC17A15FBBB68A94895EB0E1F2ABEF40FAD85D255B37</strong></div>
+        <button type="button" data-copy-sha>复制哈希</button>
+        <p role="status" aria-live="polite" data-copy-status>用于确认下载文件与发布资产完全一致。</p>
+      </div>
+    </section>
+
+    <section class="tennis-faq" aria-labelledby="faq-title">
+      <header class="tennis-section-heading" data-pixel-reveal>
+        <p class="tennis-kicker"><span>FAQ</span> 安装与使用边界</p>
+        <h2 id="faq-title">开始之前，先确认这几件事</h2>
+      </header>
+      <div class="tennis-faq__list">
+        <details data-pixel-reveal><summary>安装版还需要 Python 或 FFmpeg 吗？</summary><p>不需要。安装包已经内置应用运行环境、模型以及程序使用的 FFmpeg 与 ffprobe。</p></details>
+        <details data-pixel-reveal><summary>一定要 NVIDIA 显卡吗？</summary><p>轻量安装版可以使用 ONNX GPU 路径；NVIDIA 显卡还能启用 NVDEC / NVENC，并在支持的环境中使用 CUDA 或 TensorRT。不可用时软件会明确显示回退状态。</p></details>
+        <details data-pixel-reveal><summary>程序会删除我的原视频吗？</summary><p>不会。源视频始终只读；软件只向你选择的输出目录写入候选和最终片段。</p></details>
+        <details data-pixel-reveal><summary>为什么下载安装包时显示 404？</summary><p>当前 Release 位于私有源码仓库。请确认已登录拥有该仓库权限的 GitHub 账户；公开下载镜像尚未发布。</p></details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pixel-footer tennis-footer">
+    <div class="pixel-footer__brand"><span>TVH</span><strong>Tennis Video Helper</strong><p>让模型负责寻找，让你决定什么值得保留。</p></div>
+    <nav aria-label="页脚导航"><a href="#features">功能</a><a href="#settings">设置</a><a href="#progress">研发进度</a><a href="#install">下载与安装</a><a href="https://github.com/Lijinzh/TennisVideoHelper" target="_blank" rel="noopener noreferrer">GitHub 项目仓库</a></nav>
+    <div class="pixel-footer__status"><span><i></i> v0.1.0 RELEASED</span><small>Windows 安装版 · 2026-08-12</small></div>
+    <p class="pixel-footer__bottom">© 2026 TENNIS VIDEO HELPER // BUILT FOR LONG RALLIES</p>
+  </footer>
+</body>
+</html>
