@@ -16,8 +16,8 @@ dependencies = [
 ]
 
 [project.scripts]
-tennis-video-helper = "tennis_video_helper.cli:app"
-tennis-video-helper-gui = "tennis_video_helper.gui:main"
+tennis-video-helper = "tennis_video_helper.app.cli:app"
+tennis-video-helper-gui = "tennis_video_helper.ui.main_window:main"
 
 [project.optional-dependencies]
 dev = [

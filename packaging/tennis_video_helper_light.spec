@@ -10,11 +10,11 @@ runtime_files = (
     else []
 )
 model_files = [
-    (str(project_root / "yolo11n-pose.onnx"), "models"),
-    (str(project_root / "yolo11n.onnx"), "models"),
+    (str(project_root / "assets" / "models" / "yolo11n-pose.onnx"), "assets/models"),
+    (str(project_root / "assets" / "models" / "yolo11n.onnx"), "assets/models"),
 ]
 icon_files = [
-    (str(project_root / "assets" / icon_name), "assets")
+    (str(project_root / "assets" / "icons" / icon_name), "assets/icons")
     for icon_name in ("app_icon.png", "app_icon.ico")
 ]
 
@@ -64,8 +64,14 @@ common = dict(
     optimize=1,
 )
 
-gui_a = Analysis([str(project_root / "src" / "tennis_video_helper" / "gui.py")], **common)
-worker_a = Analysis([str(project_root / "src" / "tennis_video_helper" / "cli.py")], **common)
+gui_a = Analysis(
+    [str(project_root / "src" / "tennis_video_helper" / "ui" / "main_window.py")],
+    **common,
+)
+worker_a = Analysis(
+    [str(project_root / "src" / "tennis_video_helper" / "app" / "cli.py")],
+    **common,
+)
 gui_pyz = PYZ(gui_a.pure)
 worker_pyz = PYZ(worker_a.pure)
 
@@ -75,7 +81,7 @@ gui_exe = EXE(
     [],
     exclude_binaries=True,
     name="TennisVideoHelper",
-    icon=str(project_root / "assets" / "app_icon.ico"),
+    icon=str(project_root / "assets" / "icons" / "app_icon.ico"),
     console=False,
     optimize=1,
 )
@@ -85,7 +91,7 @@ worker_exe = EXE(
     [],
     exclude_binaries=True,
     name="TennisVideoHelperWorker",
-    icon=str(project_root / "assets" / "app_icon.ico"),
+    icon=str(project_root / "assets" / "icons" / "app_icon.ico"),
     console=False,
     optimize=1,
 )

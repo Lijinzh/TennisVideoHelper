@@ -15,14 +15,17 @@ runtime_files = (
     else []
 )
 model_files = [
-    (str(path), "models")
+    (str(path), "assets/models")
     for path in (
-        project_root / "yolo11n-pose.pt",
-        project_root / "yolo11n.onnx",
+        project_root / "assets" / "models" / "yolo11n-pose.pt",
+        project_root / "assets" / "models" / "yolo11n.onnx",
     )
     if path.is_file()
 ]
-icon_files = [(str(project_root / "assets" / "app_icon.png"), "assets")]
+icon_files = [
+    (str(project_root / "assets" / "icons" / icon_name), "assets/icons")
+    for icon_name in ("app_icon.png", "app_icon.ico")
+]
 engine_cache = Path.home() / ".cache" / "tennis-video-helper" / "engines"
 engine_files = (
     [(str(path), "engines") for path in engine_cache.glob("*.engine")]
@@ -76,11 +79,11 @@ if compact_package:
     )
 
 a = Analysis(
-    [str(project_root / "src" / "tennis_video_helper" / "gui.py")],
+    [str(project_root / "src" / "tennis_video_helper" / "ui" / "main_window.py")],
     pathex=[str(project_root / "src")],
     binaries=pynv_binaries,
     datas=[*runtime_files, *model_files, *engine_files, *icon_files, *pynv_datas],
-    hiddenimports=["tennis_video_helper.cli", *pynv_hiddenimports],
+    hiddenimports=["tennis_video_helper.app.cli", *pynv_hiddenimports],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -91,7 +94,7 @@ a = Analysis(
 pyz = PYZ(a.pure)
 
 worker_a = Analysis(
-    [str(project_root / "src" / "tennis_video_helper" / "cli.py")],
+    [str(project_root / "src" / "tennis_video_helper" / "app" / "cli.py")],
     pathex=[str(project_root / "src")],
     binaries=pynv_binaries,
     datas=[*runtime_files, *model_files, *engine_files, *icon_files, *pynv_datas],
@@ -111,7 +114,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="TennisVideoHelper",
-    icon=str(project_root / "assets" / "app_icon.ico"),
+    icon=str(project_root / "assets" / "icons" / "app_icon.ico"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -126,7 +129,7 @@ worker_exe = EXE(
     [],
     exclude_binaries=True,
     name="TennisVideoHelperWorker",
-    icon=str(project_root / "assets" / "app_icon.ico"),
+    icon=str(project_root / "assets" / "icons" / "app_icon.ico"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

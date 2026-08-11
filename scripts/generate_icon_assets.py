@@ -5,8 +5,8 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-PNG_TARGET = ROOT / "assets" / "app_icon.png"
-ICO_TARGET = ROOT / "assets" / "app_icon.ico"
+PNG_TARGET = ROOT / "assets" / "icons" / "app_icon.png"
+ICO_TARGET = ROOT / "assets" / "icons" / "app_icon.ico"
 SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 

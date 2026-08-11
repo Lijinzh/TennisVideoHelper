@@ -8,18 +8,21 @@ htmlcov/
 # 本地模型和媒体文件
 *.pt
 *.onnx
-!yolo11n-pose.onnx
-!yolo11n.onnx
+!assets/models/yolo11n-pose.onnx
+!assets/models/yolo11n.onnx
 *.engine
 *.wav
 网球/
 精选输出/
 output/
+artifacts/
+tmp/
 runtime/
 build/
 dist/
 .build-cache/
 .build-venv-light/
+.ruff_cache/
 
 # 编辑器和系统文件
 .idea/

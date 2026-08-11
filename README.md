@@ -4,6 +4,23 @@
 
 程序面向固定或云台侧后方机位：近端球员在画面中较大，远端对手可能不在画面中。音频负责发现击球候选，姿态和运动分析负责验证近端动作，时间序列负责推断回合是否持续。
 
+## 项目架构
+
+项目采用 `src` 布局，并按依赖方向拆分为可单独复用的模块：
+
+```text
+src/tennis_video_helper/
+├── core/                 # 配置和领域数据模型，不依赖 GUI 或推理框架
+├── media/                # 媒体探测、GPU 解码、导出和 FFmpeg 发现
+├── detection/            # 音频瞬态、音画融合和视觉动作识别
+│   └── vision/           # 姿态、球拍与 ONNX 推理后端
+├── review/               # 人工复核会话和分析报告
+├── app/                  # 业务管线、自动优化和 CLI
+└── ui/                   # PySide6 桌面界面
+```
+
+模型、图标、示例和历史设计文档不再堆放在仓库根目录，分别位于 `assets/models`、`assets/icons`、`examples` 和 `docs`。详细的依赖规则、扩展点和复用示例见 [架构说明](docs/architecture.md)。
+
 ## 击球与回合判定标准
 
 当前实现不是“听到球声就保留”，而是按以下顺序确认：
@@ -78,10 +95,10 @@ uv run python -c "import torch; print(torch.cuda.is_available()); print(torch.cu
 启动磨砂黑桌面界面：
 
 ```powershell
-uv run python main.py
+uv run tennis-video-helper-gui
 ```
 
-也可以继续使用已安装的命令入口 `uv run tennis-video-helper-gui`，两者启动的是同一个 GUI。
+也可以使用模块入口 `uv run python -m tennis_video_helper`，两者启动的是同一个 GUI。
 
 界面支持：
 
@@ -184,11 +201,11 @@ AMD XDNA NPU 目前未默认启用：本机驱动低于当前 Ryzen AI 运行时
 
 Compact 输出位于 `dist\TennisVideoHelper-Compact`。Full 和 Compact 可以同时保留，分别面向绝对性能和下载体积优先的用户。
 
-用于过滤讲话手势的 `yolo11n.onnx` 球拍检测模型约 10.8 MiB，Full 与 Light/Compact 安装版都会直接内置，不需要用户联网下载，也不会显著改变安装包体积。
+用于过滤讲话手势的 `assets/models/yolo11n.onnx` 球拍检测模型约 10.8 MiB，Full 与 Light/Compact 安装版都会直接内置，不需要用户联网下载，也不会显著改变安装包体积。
 
 ## 可调参数
 
-参数集中在 [`src/tennis_video_helper/config.py`](src/tennis_video_helper/config.py)。每个参数后面都有中文注释，说明参数用途，以及调大或调小后的实际效果和误检风险。
+参数集中在 [`src/tennis_video_helper/core/config.py`](src/tennis_video_helper/core/config.py)。每个参数后面都有中文注释，说明参数用途，以及调大或调小后的实际效果和误检风险。
 
 主要默认值：
 
@@ -243,7 +260,7 @@ require_gpu: bool = False  # False 时缺少显卡会明确警告并回退 CPU
 
 ## 校准
 
-人工标记格式和调参步骤见 [`calibration/README.md`](calibration/README.md)。建议先标记 5 至 10 分钟素材，优先保证长回合召回率，再逐步降低背景球场声音导致的误检。
+人工标记格式和调参步骤见 [`examples/calibration/README.md`](examples/calibration/README.md)。建议先标记 5 至 10 分钟素材，优先保证长回合召回率，再逐步降低背景球场声音导致的误检。
 
 ## 测试
 
@@ -253,5 +270,7 @@ uv run pytest -q
 
 ## 设计与实施计划
 
-- [完整设计](docs/superpowers/specs/2026-07-24-tennis-rally-video-selector-design.md)
-- [实施计划](docs/superpowers/plans/2026-07-24-tennis-rally-video-selector-implementation.md)
+- [当前架构与复用指南](docs/architecture.md)
+- [完整设计](docs/design/tennis-rally-selector.md)
+- [GPU 性能设计](docs/design/gpu-performance.md)
+- [初始实施计划（历史文档）](docs/development/initial-implementation-plan.md)

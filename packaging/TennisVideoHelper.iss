@@ -20,7 +20,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\{#MyAppExeName}
-SetupIconFile=..\assets\app_icon.ico
+SetupIconFile=..\assets\icons\app_icon.ico
 
 [Files]
 Source: "..\dist\TennisVideoHelper-Light\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
