@@ -145,6 +145,9 @@ def test_feedback_window_builds_a_safe_prefilled_github_issue() -> None:
     assert "feedbackFallback?.click()" in script
     assert "feedbackForm.checkValidity()" in script
     assert "请先填写一句话标题" in script
+    assert "maxPrefilledUrlLength: 7000" in script
+    assert "prepared.shortIssueUrl" in script
+    assert "反馈内容较长" in script
     assert "data-feedback-fallback" in html
     assert 'option value="Windows 11 x64"' in html
     assert 'option value="Windows 10 x64"' in html

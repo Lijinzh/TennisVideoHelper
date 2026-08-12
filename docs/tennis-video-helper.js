@@ -312,6 +312,7 @@
   const feedback = {
     issueUrl: 'https://github.com/Lijinzh/TennisVideoHelper/issues/new',
     label: 'user feedback',
+    maxPrefilledUrlLength: 7000,
   };
   const feedbackDialog = document.querySelector('[data-feedback-dialog]');
   const feedbackForm = document.querySelector('[data-feedback-form]');
@@ -364,7 +365,14 @@
     issueUrl.searchParams.set('title', `[${category}] ${summary}`);
     issueUrl.searchParams.set('body', body);
     issueUrl.searchParams.set('labels', feedback.label);
-    return { body, issueUrl: issueUrl.toString() };
+    const shortIssueUrl = new URL(feedback.issueUrl);
+    shortIssueUrl.searchParams.set('title', `[${category}] ${summary}`);
+    shortIssueUrl.searchParams.set('labels', feedback.label);
+    return {
+      body,
+      issueUrl: issueUrl.toString(),
+      shortIssueUrl: shortIssueUrl.toString(),
+    };
   };
 
   for (const button of document.querySelectorAll('[data-feedback-open]')) {
@@ -387,6 +395,10 @@
   }
 
   if (feedbackForm && feedbackStatus) {
+    feedbackForm.addEventListener('invalid', () => {
+      feedbackStatus.textContent = '请先填写一句话标题和详细说明，并勾选公开信息确认。';
+    }, true);
+
     const validateFeedback = () => {
       if (feedbackForm.checkValidity()) return true;
       feedbackStatus.textContent = '请先填写一句话标题和详细说明，并勾选公开信息确认。';
@@ -399,11 +411,15 @@
       if (!validateFeedback()) return;
       const prepared = buildFeedback();
       if (!prepared) return;
+      const isLongFeedback = prepared.issueUrl.length > feedback.maxPrefilledUrlLength;
       if (feedbackFallback) {
-        feedbackFallback.href = prepared.issueUrl;
+        feedbackFallback.href = isLongFeedback ? prepared.shortIssueUrl : prepared.issueUrl;
         feedbackFallback.hidden = false;
       }
-      feedbackStatus.textContent = 'GitHub 提交页已尝试在新标签页打开。如果没有看到新页面，请点击下方备用链接。';
+      feedbackStatus.textContent = isLongFeedback
+        ? '反馈内容较长，为避免 GitHub 链接卡住，请先点击“复制反馈内容”，再使用下方链接打开 GitHub 并粘贴正文。'
+        : 'GitHub 提交页已尝试在新标签页打开。如果没有看到新页面，请点击下方备用链接。';
+      if (isLongFeedback) return;
       feedbackFallback?.click();
     });
 
