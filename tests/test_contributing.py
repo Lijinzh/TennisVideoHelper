@@ -6,10 +6,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_repository_has_a_chinese_contribution_guide() -> None:
     guide = ROOT / "CONTRIBUTING.md"
+    homepage = ROOT / "docs" / "index.html"
     redirect = ROOT / "docs" / "contributing.html"
 
     assert guide.is_file()
     assert redirect.is_file()
+    assert 'href="contributing.html"' in homepage.read_text(encoding="utf-8")
     assert "blob/main/CONTRIBUTING.md" in redirect.read_text(encoding="utf-8")
 
     text = guide.read_text(encoding="utf-8")
