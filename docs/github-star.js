@@ -1,6 +1,7 @@
 (() => {
   const repositoryUrl = 'https://github.com/Lijinzh/TennisVideoHelper';
   const repositoryApiUrl = 'https://api.github.com/repos/Lijinzh/TennisVideoHelper';
+  const publishedStarSnapshot = 0;
 
   const signalStrip = document.querySelector('.tennis-signal-strip');
   if (!signalStrip || document.querySelector('#star')) return;
@@ -18,7 +19,7 @@
     <div class="tennis-star-card">
       <div class="tennis-star-card__score">
         <span class="tennis-star-card__icon" aria-hidden="true">★</span>
-        <div><span>CURRENT STARS</span><strong data-github-star-count aria-label="当前 Star 数量">—</strong></div>
+        <div><span>CURRENT STARS</span><strong data-github-star-count aria-label="当前 Star 数量">${publishedStarSnapshot}</strong></div>
       </div>
       <a class="tennis-star-card__button" href="${repositoryUrl}" target="_blank" rel="noopener noreferrer" data-github-star-link>前往 GitHub 确认 Star ↗</a>
       <p class="tennis-star-card__status" role="status" aria-live="polite" data-github-star-status>正在读取 GitHub 的公开 Star 数量…</p>
@@ -51,8 +52,8 @@
       count.textContent = new Intl.NumberFormat('zh-CN').format(stars);
       status.textContent = '数量来自 GitHub 官方公开 API。登录 GitHub 后即可确认 Star。';
     } catch (error) {
-      count.textContent = '—';
-      status.textContent = '暂时无法读取数量，但仍可通过上方按钮前往 GitHub 点亮 Star。';
+      count.textContent = new Intl.NumberFormat('zh-CN').format(publishedStarSnapshot);
+      status.textContent = 'GitHub 匿名 API 暂时限流，当前显示网站发布时的数量快照；按钮仍可正常使用。';
     }
   };
 

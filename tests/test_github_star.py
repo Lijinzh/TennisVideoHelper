@@ -19,6 +19,8 @@ def test_homepage_has_a_transparent_github_star_entry() -> None:
     assert "前往 GitHub 确认 Star" in script
     assert "不会索取或保存你的 GitHub Token" in script
     assert "stargazers_count" in script
+    assert "publishedStarSnapshot = 0" in script
+    assert "网站发布时的数量快照" in script
     assert "data-pixel-reveal" not in script
     assert "ghbtns.com" not in html + script
     assert "access_token" not in script
