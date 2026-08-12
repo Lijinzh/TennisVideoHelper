@@ -111,6 +111,10 @@ html[data-resolved-theme="dark"] .tennis-site {
 .tennis-back-link span { color: var(--orange); font: 900 10px/1.2 "Courier New", monospace; letter-spacing: .1em; }
 .tennis-back-link strong { font-size: 14px; }
 .tennis-header-tools { display: flex; justify-self: end; gap: 18px; align-items: center; }
+.tennis-language-trigger { display: inline-grid; justify-items: center; min-width: 78px; min-height: 42px; padding: 6px 10px; color: var(--ink); background: var(--theme-highlight); border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--mint); font: 900 11px/1.1 var(--ui-sans); cursor: pointer; }
+.tennis-language-trigger span { font: 900 15px/1 "Courier New", monospace; }
+.tennis-language-trigger strong { font-size: 10px; }
+.tennis-language-trigger:hover { color: var(--paper-light); background: var(--ink); }
 .tennis-theme-picker { position: relative; }
 .tennis-theme-trigger { display: inline-flex; gap: 8px; align-items: center; min-height: 42px; padding: 9px 12px; color: var(--paper-light); background: var(--ink); border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--orange); font: 900 12px/1 var(--ui-sans); cursor: pointer; }
 .tennis-theme-trigger span { color: var(--theme-highlight); font: 900 19px/1 "Courier New", monospace; }
@@ -484,6 +488,8 @@ html[data-resolved-theme="dark"] .tennis-site {
 @media (max-width: 560px) {
   .tennis-brand strong { font-size: 13px; }
   .tennis-brand small { font-size: 9px; }
+  .tennis-language-trigger { min-width: 58px; padding-inline: 7px; }
+  .tennis-language-trigger strong { display: none; }
   .tennis-theme-panel { top: 70px; right: 10px; left: 10px; width: auto; padding: 15px; box-shadow: 7px 7px 0 var(--orange); }
   .tennis-theme-segments { grid-template-columns: 1fr; }
   .tennis-hero,

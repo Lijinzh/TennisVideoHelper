@@ -1,10 +1,10 @@
 (() => {
   const release = {
-    version: '0.1.2',
-    filename: 'TennisVideoHelper-Setup-0.1.2.exe',
-    size: '220.4 MiB',
-    sha256: '2D77CA3175F8D7090D515FBB25C024289C378F057574EB99842BA6E38E00B58D',
-    url: 'https://github.com/Lijinzh/TennisVideoHelper/releases/download/v0.1.2/TennisVideoHelper-Setup-0.1.2.exe',
+    version: '0.1.3',
+    filename: 'TennisVideoHelper-Setup-0.1.3.exe',
+    size: '220.5 MiB',
+    sha256: '9A7451CDB712DE811B18A74DF2101D430A73478F372F173CC4E2536EE80F258E',
+    url: 'https://github.com/Lijinzh/TennisVideoHelper/releases/download/v0.1.3/TennisVideoHelper-Setup-0.1.3.exe',
   };
 
   for (const link of document.querySelectorAll('[data-tv-download]')) {

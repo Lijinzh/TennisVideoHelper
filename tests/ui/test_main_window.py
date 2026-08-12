@@ -715,6 +715,42 @@ def test_window_theme_can_switch_between_system_light_and_dark_styles() -> None:
     app.processEvents()
 
 
+def test_language_switch_translates_core_ui_and_persists(monkeypatch) -> None:
+    values = {
+        gui_module.LANGUAGE_SETTINGS_KEY: "zh_CN",
+        gui_module.COURT_BACKGROUND_SETTINGS_KEY: "classic",
+    }
+
+    class FakeSettings:
+        def value(self, key, default=None):
+            return values.get(key, default)
+
+        def setValue(self, key, value):
+            values[key] = value
+
+        def sync(self):
+            pass
+
+    monkeypatch.setattr(gui_module, "_application_settings", FakeSettings)
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+
+    english_index = window.language_combo.findData("en")
+    window.language_combo.setCurrentIndex(english_index)
+    app.processEvents()
+
+    assert values[gui_module.LANGUAGE_SETTINGS_KEY] == "en"
+    assert window.start_button.text() == "Start Analysis"
+    assert window.settings_button.text() == "Settings"
+    assert window.publish_button.text() == "Export Selected Clips"
+    assert any("File" in action.text() for action in window.menuBar().actions())
+    assert window.court_background_combo.itemText(0) == "Classic black"
+    assert window.language_combo.currentData() == "en"
+
+    window.close()
+    app.processEvents()
+
+
 def test_pixel_theme_uses_segmented_progress_and_readable_chinese_font() -> None:
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
@@ -802,7 +838,7 @@ def test_update_actions_are_available_and_enabled_by_default() -> None:
 
     assert window.check_updates_action.text() == "检查更新…"
     assert window.auto_updates_action.isCheckable() is True
-    assert window.update_controller.current_version == "0.1.2"
+    assert window.update_controller.current_version == "0.1.3"
 
     window.close()
     app.processEvents()

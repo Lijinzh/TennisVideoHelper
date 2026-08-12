@@ -1,6 +1,6 @@
 #define MyAppName "Tennis Video Helper"
 #ifndef MyAppVersion
-#define MyAppVersion "0.1.2"
+#define MyAppVersion "0.1.3"
 #endif
 #define MyAppPublisher "TennisVideoHelper"
 #define MyAppExeName "TennisVideoHelper.exe"

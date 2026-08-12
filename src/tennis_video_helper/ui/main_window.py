@@ -66,6 +66,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from PySide6.QtWidgets import QMessageBox as _QtMessageBox
 
 from tennis_video_helper.app.cli import ACCELERATION_PREFIX, PROGRESS_PREFIX, REVIEW_PREFIX
 from tennis_video_helper import __version__
@@ -87,6 +88,99 @@ from tennis_video_helper.media.runtime import subprocess_no_window_kwargs
 from tennis_video_helper.resources import asset_path
 from tennis_video_helper.ui.pixel_effects import PixelMotionRail
 from tennis_video_helper.ui.update_controller import UpdateController
+from tennis_video_helper.ui.i18n import (
+    DEFAULT_LANGUAGE,
+    LANGUAGE_SETTINGS_KEY,
+    normalize_language,
+    set_language,
+    translate_text,
+)
+
+
+class QLabel(QLabel):
+    def __init__(self, text: str = "", *args, **kwargs) -> None:
+        super().__init__(translate_text(text), *args, **kwargs)
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt API
+        super().setText(translate_text(text))
+
+
+class QPushButton(QPushButton):
+    def __init__(self, text: str = "", *args, **kwargs) -> None:
+        super().__init__(translate_text(text), *args, **kwargs)
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt API
+        super().setText(translate_text(text))
+
+
+class QToolButton(QToolButton):
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt API
+        super().setText(translate_text(text))
+
+
+class QCheckBox(QCheckBox):
+    def __init__(self, text: str = "", *args, **kwargs) -> None:
+        super().__init__(translate_text(text), *args, **kwargs)
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt API
+        super().setText(translate_text(text))
+
+
+class QLineEdit(QLineEdit):
+    def setPlaceholderText(self, text: str) -> None:  # noqa: N802 - Qt API
+        super().setPlaceholderText(translate_text(text))
+
+
+class QComboBox(QComboBox):
+    def addItem(self, text: str, userData=None) -> None:  # noqa: N802 - Qt API
+        super().addItem(translate_text(text), userData)
+
+    def setItemText(self, index: int, text: str) -> None:  # noqa: N802 - Qt API
+        super().setItemText(index, translate_text(text))
+
+
+class QDoubleSpinBox(QDoubleSpinBox):
+    def setSuffix(self, suffix: str) -> None:  # noqa: N802 - Qt API
+        super().setSuffix(translate_text(suffix))
+
+
+class QSpinBox(QSpinBox):
+    def setSuffix(self, suffix: str) -> None:  # noqa: N802 - Qt API
+        super().setSuffix(translate_text(suffix))
+
+
+class QAction(QAction):
+    def __init__(self, text: str = "", *args, **kwargs) -> None:
+        super().__init__(translate_text(text), *args, **kwargs)
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt API
+        super().setText(translate_text(text))
+
+
+class QMessageBox(QMessageBox):
+    @staticmethod
+    def _translated_args(args: tuple) -> tuple:
+        return tuple(translate_text(value) if isinstance(value, str) else value for value in args)
+
+    @staticmethod
+    def about(*args, **kwargs):
+        return _QtMessageBox.about(*QMessageBox._translated_args(args), **kwargs)
+
+    @staticmethod
+    def warning(*args, **kwargs):
+        return _QtMessageBox.warning(*QMessageBox._translated_args(args), **kwargs)
+
+    @staticmethod
+    def information(*args, **kwargs):
+        return _QtMessageBox.information(*QMessageBox._translated_args(args), **kwargs)
+
+    @staticmethod
+    def critical(*args, **kwargs):
+        return _QtMessageBox.critical(*QMessageBox._translated_args(args), **kwargs)
+
+    @staticmethod
+    def question(*args, **kwargs):
+        return _QtMessageBox.question(*QMessageBox._translated_args(args), **kwargs)
 
 
 VIDEO_FILE_FILTER = (
@@ -899,6 +993,10 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.settings = _application_settings()
+        self._language = normalize_language(
+            self.settings.value(LANGUAGE_SETTINGS_KEY, DEFAULT_LANGUAGE)
+        )
+        set_language(DEFAULT_LANGUAGE)
         self._motion_enabled = _settings_bool(
             self.settings, "appearance/motion_enabled", True
         )
@@ -993,6 +1091,7 @@ class MainWindow(QMainWindow):
             style_hints.colorSchemeChanged.connect(self._system_theme_changed)
         self._refresh_court_background()
         self._refresh_theme_dependent_widgets()
+        self._install_runtime_translator()
 
         self._load_saved_optimization()
         self._set_running(False)
@@ -1526,8 +1625,120 @@ class MainWindow(QMainWindow):
         theme_layout.addWidget(self.court_background_preview)
         layout.addWidget(theme_panel)
 
+        language_panel = QFrame()
+        language_panel.setObjectName("themeSelectorPanel")
+        language_layout = QHBoxLayout(language_panel)
+        language_layout.setContentsMargins(12, 10, 12, 10)
+        language_layout.setSpacing(14)
+        language_copy = QVBoxLayout()
+        language_copy.setSpacing(4)
+        self.language_title = QLabel("界面语言")
+        self.language_title.setObjectName("parameterTitle")
+        language_copy.addWidget(self.language_title)
+        self.language_description = QLabel("切换后立即生效，并在下次启动时保持。")
+        self.language_description.setObjectName("parameterNote")
+        self.language_description.setWordWrap(True)
+        language_copy.addWidget(self.language_description)
+        self.language_combo = QComboBox()
+        self.language_combo.setObjectName("languageCombo")
+        self.language_combo.setMinimumWidth(280)
+        self.language_combo.setMinimumHeight(42)
+        self.language_combo.addItem("简体中文", "zh_CN")
+        self.language_combo.addItem("English", "en")
+        language_index = self.language_combo.findData(self._language)
+        self.language_combo.setCurrentIndex(max(0, language_index))
+        self.language_combo.currentIndexChanged.connect(self._language_changed)
+        language_copy.addWidget(self.language_combo, 0, Qt.AlignmentFlag.AlignLeft)
+        language_layout.addLayout(language_copy, 1)
+        self.language_preview = QLabel("中 / EN")
+        self.language_preview.setObjectName("courtBackgroundPreview")
+        self.language_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.language_preview.setFixedSize(230, 70)
+        language_layout.addWidget(self.language_preview)
+        layout.addWidget(language_panel)
+
         self._update_analysis_scope()
         return card
+
+    def _install_runtime_translator(self) -> None:
+        """Translate widget text at runtime while preserving canonical Chinese copy."""
+
+        self._translation_source: dict[int, dict[str, str]] = {}
+        self._capture_translation_sources()
+        self._apply_language()
+
+    def _capture_translation_sources(self) -> None:
+        for widget in [self, *self.findChildren(QWidget)]:
+            source: dict[str, str] = {}
+            for name, getter in (
+                ("text", getattr(widget, "text", None)),
+                ("title", getattr(widget, "title", None)),
+                ("placeholder", getattr(widget, "placeholderText", None)),
+                ("tooltip", getattr(widget, "toolTip", None)),
+            ):
+                if callable(getter):
+                    try:
+                        value = str(getter())
+                    except TypeError:
+                        continue
+                    if value:
+                        source[name] = value
+            if source:
+                self._translation_source[id(widget)] = source
+        for action in self.findChildren(QAction):
+            source = {
+                "text": action.text(),
+                "tooltip": action.toolTip(),
+            }
+            self._translation_source[id(action)] = {
+                key: value for key, value in source.items() if value
+            }
+
+    def _language_changed(self, index: int) -> None:
+        language = normalize_language(self.language_combo.itemData(index))
+        if language == self._language:
+            return
+        self._language = set_language(language)
+        self.settings.setValue(LANGUAGE_SETTINGS_KEY, language)
+        self._apply_language()
+
+    def _apply_language(self) -> None:
+        set_language(self._language)
+        for widget in [self, *self.findChildren(QWidget), *self.findChildren(QAction)]:
+            source = self._translation_source.get(id(widget), {})
+            if "text" in source and callable(getattr(widget, "setText", None)):
+                widget.setText(translate_text(source["text"], self._language))
+            if "title" in source and callable(getattr(widget, "setTitle", None)):
+                widget.setTitle(translate_text(source["title"], self._language))
+            if "placeholder" in source and callable(
+                getattr(widget, "setPlaceholderText", None)
+            ):
+                widget.setPlaceholderText(
+                    translate_text(source["placeholder"], self._language)
+                )
+            if "tooltip" in source and callable(getattr(widget, "setToolTip", None)):
+                widget.setToolTip(translate_text(source["tooltip"], self._language))
+            if isinstance(widget, QComboBox) and widget is not self.language_combo:
+                current_data = widget.currentData()
+                for item_index in range(widget.count()):
+                    key = (id(widget), "item", item_index)
+                    item_source = self._translation_source.setdefault(
+                        hash(key), {"text": widget.itemText(item_index)}
+                    )["text"]
+                    widget.setItemText(
+                        item_index, translate_text(item_source, self._language)
+                    )
+                data_index = widget.findData(current_data)
+                if data_index >= 0:
+                    widget.setCurrentIndex(data_index)
+        self.language_combo.blockSignals(True)
+        self.language_combo.setCurrentIndex(
+            max(0, self.language_combo.findData(self._language))
+        )
+        self.language_combo.blockSignals(False)
+        self._refresh_court_background()
+        self._update_analysis_scope()
+        self._update_export_quality_hint(self.export_original_quality.isChecked())
 
     def _update_analysis_scope(self, *_args) -> None:
         limit_duration = (
@@ -2487,9 +2698,9 @@ class MainWindow(QMainWindow):
     def _choose_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "选择网球视频",
+            translate_text("选择网球视频"),
             self.input_edit.text(),
-            VIDEO_FILE_FILTER,
+            translate_text(VIDEO_FILE_FILTER),
         )
         if path:
             self.input_edit.setText(path)
@@ -2498,7 +2709,7 @@ class MainWindow(QMainWindow):
 
     def _choose_input_folder(self) -> None:
         path = QFileDialog.getExistingDirectory(
-            self, "选择视频文件夹", self.input_edit.text()
+            self, translate_text("选择视频文件夹"), self.input_edit.text()
         )
         if path:
             self.input_edit.setText(path)
@@ -2518,7 +2729,7 @@ class MainWindow(QMainWindow):
 
     def _choose_output_folder(self) -> None:
         path = QFileDialog.getExistingDirectory(
-            self, "选择输出文件夹", self.output_edit.text()
+            self, translate_text("选择输出文件夹"), self.output_edit.text()
         )
         if path:
             self.output_edit.setText(path)

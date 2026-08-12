@@ -28,6 +28,36 @@ from tennis_video_helper.app.updater import (
     validate_download_redirect,
     verify_installer,
 )
+from tennis_video_helper.ui.i18n import translate_text
+
+
+class QMessageBox(QMessageBox):
+    @staticmethod
+    def _args(args: tuple) -> tuple:
+        return tuple(translate_text(value) if isinstance(value, str) else value for value in args)
+
+    @staticmethod
+    def information(*args, **kwargs):
+        from PySide6.QtWidgets import QMessageBox as QtMessageBox
+        return QtMessageBox.information(*QMessageBox._args(args), **kwargs)
+
+    @staticmethod
+    def warning(*args, **kwargs):
+        from PySide6.QtWidgets import QMessageBox as QtMessageBox
+        return QtMessageBox.warning(*QMessageBox._args(args), **kwargs)
+
+    @staticmethod
+    def question(*args, **kwargs):
+        from PySide6.QtWidgets import QMessageBox as QtMessageBox
+        return QtMessageBox.question(*QMessageBox._args(args), **kwargs)
+
+
+class QProgressDialog(QProgressDialog):
+    def __init__(self, *args, **kwargs) -> None:
+        translated = tuple(
+            translate_text(value) if isinstance(value, str) else value for value in args
+        )
+        super().__init__(*translated, **kwargs)
 
 
 DAILY_AUTO_CHECK_TIME = time(hour=10, minute=0)

@@ -116,8 +116,8 @@ def test_homepage_supports_system_light_dark_and_court_page_themes() -> None:
     assert 'var(--theme-scene) center top / cover fixed' in css
     assert ".tennis-theme-preview" in css
     assert css.count("--theme-scene: url(") == 16
-    assert 'tennis-video-helper.css?v=20260812-v8' in html
-    assert 'tennis-video-helper.js?v=20260812-v8' in html
+    assert 'tennis-video-helper.css?v=20260812-v9' in html
+    assert 'tennis-video-helper.js?v=20260812-v9' in html
     for asset in (
         "roland-garros-clay-court.webp",
         "wimbledon-grass-court.webp",
@@ -195,6 +195,24 @@ def test_public_download_copy_is_current() -> None:
     html = (SITE / "index.html").read_text(encoding="utf-8")
     assert "安装包由公开 GitHub Release 提供" in html
     assert "当前安装包位于私有 GitHub Release" not in html
+
+
+def test_homepage_supports_persistent_english_language_switching() -> None:
+    html = (SITE / "index.html").read_text(encoding="utf-8")
+    script = (SITE / "tennis-video-helper-i18n.js").read_text(encoding="utf-8")
+    css = (SITE / "tennis-video-helper.css").read_text(encoding="utf-8")
+    assert "data-language-toggle" in html
+    assert "tennis-video-helper-i18n.js?v=20260812-v2" in html
+    assert "tvh-language" in html
+    assert "tvh-language" in script
+    assert "Automatic Rally Selection" in script
+    assert "Download for Windows" in script
+    assert "Choose Your Pixel Court" in script
+    assert "How Does the Project Work?" in script
+    assert "Prepare and Continue to GitHub" in script
+    assert "MutationObserver" in script
+    assert "document.documentElement.lang" in script
+    assert ".tennis-language-trigger" in css
 
 
 def test_github_user_feedback_issue_form_exists() -> None:
