@@ -46,10 +46,10 @@ def test_homepage_includes_scrollable_pixel_court_gallery() -> None:
     script = (SITE / "tennis-video-helper.js").read_text(encoding="utf-8")
     assert 'id="courts"' in html
     assert "陕北风黄土球场" in html
-    assert "巴黎红土球场" in html
-    assert "伦敦草地球场" in html
-    assert "纽约夜场硬地" in html
-    assert "墨尔本蓝色硬地" in html
+    assert "法网·罗兰加洛斯红土" in html
+    assert "温布尔登草地球场" in html
+    assert "美网纽约夜场硬地" in html
+    assert "澳网墨尔本蓝色硬地" in html
     assert html.count("data-court-slide") == 5
     assert html.count("data-court-tab=") == 5
     assert ".tennis-court-section" in css
