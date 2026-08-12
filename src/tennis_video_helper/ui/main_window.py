@@ -98,6 +98,7 @@ WINDOWS_APP_USER_MODEL_ID = "TennisVideoHelper.Desktop.0.1"
 SETTINGS_ORGANIZATION = "TennisVideoHelper"
 SETTINGS_APPLICATION = "TennisVideoHelper"
 CANDIDATE_VIEWED_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+COURT_BACKGROUND_SETTINGS_KEY = "appearance/court_background"
 
 
 def _application_settings() -> QSettings:
@@ -132,6 +133,69 @@ def _system_uses_dark_theme() -> bool:
         except (TypeError, ValueError):
             pass
     return False
+
+
+@dataclass(frozen=True, slots=True)
+class CourtBackgroundTheme:
+    """可选的软件球场背景。"""
+
+    id: str
+    label: str
+    description: str
+    asset_name: str | None = None
+    overlay_alpha: int = 126
+
+
+COURT_BACKGROUND_THEMES = (
+    CourtBackgroundTheme(
+        "classic",
+        "经典黑色",
+        "保留原来的像素黑色界面，并继续跟随 Windows 明暗模式。",
+    ),
+    CourtBackgroundTheme(
+        "shanbei-loess",
+        "陕北风黄土球场",
+        "黄土高坡、窑洞与暖色夕阳组成的陕北像素球场。",
+        "shanbei-loess-court.webp",
+        116,
+    ),
+    CourtBackgroundTheme(
+        "roland-garros",
+        "法网 · 罗兰·加洛斯红土",
+        "以巴黎红土、橙红看台和暖色灯光为主的像素球场。",
+        "roland-garros-clay-court.webp",
+        126,
+    ),
+    CourtBackgroundTheme(
+        "wimbledon",
+        "温布尔登草地",
+        "经典草地、深绿色看台与英伦氛围的像素球场。",
+        "wimbledon-grass-court.webp",
+        120,
+    ),
+    CourtBackgroundTheme(
+        "us-open",
+        "美网夜场",
+        "深蓝硬地、城市夜色与聚光灯氛围的像素球场。",
+        "us-open-night-court.webp",
+        116,
+    ),
+    CourtBackgroundTheme(
+        "australian-open",
+        "澳网蓝色硬地",
+        "明亮蓝色硬地与盛夏天空构成的澳网像素球场。",
+        "australian-open-day-court.webp",
+        132,
+    ),
+)
+COURT_BACKGROUND_THEME_BY_ID = {
+    theme.id: theme for theme in COURT_BACKGROUND_THEMES
+}
+
+
+def _normalize_court_background(theme_id: object) -> str:
+    normalized = str(theme_id or "classic")
+    return normalized if normalized in COURT_BACKGROUND_THEME_BY_ID else "classic"
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,6 +531,54 @@ class PreviewLabel(QLabel):
         painter.end()
 
 
+class CourtBackgroundViewport(QWidget):
+    """在滚动内容背后绘制自适应裁切的球场背景。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._source_pixmap = QPixmap()
+        self._overlay_alpha = 0
+        self._dark = True
+
+    @property
+    def has_background(self) -> bool:
+        return not self._source_pixmap.isNull()
+
+    def set_background(
+        self,
+        path: Path | None,
+        *,
+        overlay_alpha: int = 0,
+        dark: bool = True,
+    ) -> None:
+        self._source_pixmap = QPixmap(str(path)) if path is not None else QPixmap()
+        self._overlay_alpha = max(0, min(255, int(overlay_alpha)))
+        self._dark = bool(dark)
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        del event
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#0a0b0d" if self._dark else "#f3f5f7"))
+        if self._source_pixmap.isNull() or self.width() <= 0 or self.height() <= 0:
+            painter.end()
+            return
+        scaled = self._source_pixmap.scaled(
+            self.size(),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        source = QRectF(
+            max(0, (scaled.width() - self.width()) / 2),
+            max(0, (scaled.height() - self.height()) / 2),
+            self.width(),
+            self.height(),
+        )
+        painter.drawPixmap(QRectF(self.rect()), scaled, source)
+        painter.fillRect(self.rect(), QColor(2, 5, 9, self._overlay_alpha))
+        painter.end()
+
+
 class ContainedVideoWidget(QVideoWidget):
     """始终服从预览容器尺寸，不用竖屏视频原始分辨率撑开布局。"""
 
@@ -720,6 +832,9 @@ class MainWindow(QMainWindow):
         self._motion_enabled = _settings_bool(
             self.settings, "appearance/motion_enabled", True
         )
+        self._court_background_id = _normalize_court_background(
+            self.settings.value(COURT_BACKGROUND_SETTINGS_KEY, "classic")
+        )
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.process.readyReadStandardOutput.connect(self._read_process_output)
@@ -770,8 +885,12 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1100, 760)
         self.resize(1440, 920)
         self.setWindowIcon(_make_icon())
-        self._dark_theme = _system_uses_dark_theme()
-        self.setStyleSheet(DARK_STYLE_SHEET if self._dark_theme else LIGHT_STYLE_SHEET)
+        self._dark_theme = (
+            True
+            if self._court_background_id != "classic"
+            else _system_uses_dark_theme()
+        )
+        self.setStyleSheet(self._composed_style_sheet(self._dark_theme))
         self._build_menu_bar()
 
         self.page_scroll = QScrollArea()
@@ -780,8 +899,9 @@ class MainWindow(QMainWindow):
         self.page_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.setCentralWidget(self.page_scroll)
 
-        central = QWidget()
+        central = CourtBackgroundViewport()
         central.setObjectName("root")
+        self.background_viewport = central
         self.page_scroll.setWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(20, 8, 20, 8)
@@ -801,6 +921,7 @@ class MainWindow(QMainWindow):
         style_hints = QGuiApplication.styleHints()
         if hasattr(style_hints, "colorSchemeChanged"):
             style_hints.colorSchemeChanged.connect(self._system_theme_changed)
+        self._refresh_court_background()
         self._refresh_theme_dependent_widgets()
 
         self._load_saved_optimization()
@@ -1298,6 +1419,43 @@ class MainWindow(QMainWindow):
         grid.addWidget(limit_box, limit_row, 0, 1, parameter_columns)
 
         layout.addLayout(grid)
+
+        theme_panel = QFrame()
+        theme_panel.setObjectName("themeSelectorPanel")
+        theme_layout = QHBoxLayout(theme_panel)
+        theme_layout.setContentsMargins(12, 10, 12, 10)
+        theme_layout.setSpacing(14)
+        theme_copy = QVBoxLayout()
+        theme_copy.setSpacing(4)
+        theme_title = QLabel("软件背景")
+        theme_title.setObjectName("parameterTitle")
+        theme_copy.addWidget(theme_title)
+        self.court_background_description = QLabel()
+        self.court_background_description.setObjectName("parameterNote")
+        self.court_background_description.setWordWrap(True)
+        theme_copy.addWidget(self.court_background_description)
+        self.court_background_combo = QComboBox()
+        self.court_background_combo.setObjectName("courtBackgroundCombo")
+        self.court_background_combo.setMinimumWidth(280)
+        self.court_background_combo.setMinimumHeight(42)
+        for theme in COURT_BACKGROUND_THEMES:
+            self.court_background_combo.addItem(theme.label, theme.id)
+        selected_index = self.court_background_combo.findData(
+            self._court_background_id
+        )
+        self.court_background_combo.setCurrentIndex(max(0, selected_index))
+        self.court_background_combo.currentIndexChanged.connect(
+            self._court_background_changed
+        )
+        theme_copy.addWidget(self.court_background_combo, 0, Qt.AlignmentFlag.AlignLeft)
+        theme_layout.addLayout(theme_copy, 1)
+        self.court_background_preview = QLabel("经典像素界面")
+        self.court_background_preview.setObjectName("courtBackgroundPreview")
+        self.court_background_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.court_background_preview.setFixedSize(230, 104)
+        theme_layout.addWidget(self.court_background_preview)
+        layout.addWidget(theme_panel)
+
         self._update_analysis_scope()
         return card
 
@@ -1868,7 +2026,73 @@ class MainWindow(QMainWindow):
             self._apply_candidate_item_appearance(self.candidate_list.item(index))
 
     def _system_theme_changed(self, *_args) -> None:
-        self._apply_theme(_system_uses_dark_theme())
+        if self._court_background_id == "classic":
+            self._apply_theme(_system_uses_dark_theme())
+
+    def _court_background_changed(self, index: int) -> None:
+        self._set_court_background(self.court_background_combo.itemData(index))
+
+    def _set_court_background(self, theme_id: object) -> None:
+        self._court_background_id = _normalize_court_background(theme_id)
+        self.settings.setValue(
+            COURT_BACKGROUND_SETTINGS_KEY, self._court_background_id
+        )
+        self.settings.sync()
+        if hasattr(self, "court_background_combo"):
+            combo_index = self.court_background_combo.findData(
+                self._court_background_id
+            )
+            if combo_index >= 0 and combo_index != self.court_background_combo.currentIndex():
+                blocked = self.court_background_combo.blockSignals(True)
+                self.court_background_combo.setCurrentIndex(combo_index)
+                self.court_background_combo.blockSignals(blocked)
+        dark = (
+            True
+            if self._court_background_id != "classic"
+            else _system_uses_dark_theme()
+        )
+        self._apply_theme(dark)
+
+    def _composed_style_sheet(self, dark: bool) -> str:
+        base = DARK_STYLE_SHEET if dark else LIGHT_STYLE_SHEET
+        if self._court_background_id == "classic":
+            return base
+        return base + COURT_BACKGROUND_STYLE
+
+    def _refresh_court_background(self) -> None:
+        theme = COURT_BACKGROUND_THEME_BY_ID[self._court_background_id]
+        background_path = (
+            asset_path("backgrounds", theme.asset_name)
+            if theme.asset_name is not None
+            else None
+        )
+        if hasattr(self, "background_viewport"):
+            self.background_viewport.set_background(
+                background_path,
+                overlay_alpha=theme.overlay_alpha,
+                dark=self._dark_theme,
+            )
+        if hasattr(self, "court_background_description"):
+            self.court_background_description.setText(theme.description)
+        if not hasattr(self, "court_background_preview"):
+            return
+        if background_path is None:
+            self.court_background_preview.setPixmap(QPixmap())
+            self.court_background_preview.setText("经典像素界面")
+            return
+        preview = QPixmap(str(background_path))
+        if preview.isNull():
+            self.court_background_preview.setPixmap(QPixmap())
+            self.court_background_preview.setText("背景资源暂不可用")
+            return
+        self.court_background_preview.setText("")
+        self.court_background_preview.setPixmap(
+            preview.scaled(
+                self.court_background_preview.size(),
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
 
     def _set_motion_enabled(self, enabled: bool) -> None:
         self._motion_enabled = bool(enabled)
@@ -1878,7 +2102,8 @@ class MainWindow(QMainWindow):
 
     def _apply_theme(self, dark: bool) -> None:
         self._dark_theme = dark
-        self.setStyleSheet(DARK_STYLE_SHEET if dark else LIGHT_STYLE_SHEET)
+        self.setStyleSheet(self._composed_style_sheet(dark))
+        self._refresh_court_background()
         self._refresh_theme_dependent_widgets()
         _apply_windows_frame_theme(self, dark=dark)
 
@@ -3123,6 +3348,24 @@ QCheckBox::indicator:unchecked { background: #ffffff; border-color: #7f8b96; }
 QCheckBox::indicator:checked { background: #8fcf3d; border-color: #527d20; }
 QScrollBar::handle:vertical { background: #c4cdd5; border: 2px solid #929da8; }
 QToolTip { background: #ffffff; color: #20262c; border: 2px solid #7e8995; padding: 5px; }
+"""
+
+COURT_BACKGROUND_STYLE = """
+QWidget#root, QScrollArea#pageScroll { background: transparent; }
+QFrame#card, QFrame#workbenchCard { background: rgba(10, 13, 17, 224); }
+QFrame#topBar { background: rgba(11, 15, 20, 218); }
+QFrame#reviewPanel, QFrame#previewPanel, QFrame#statusPanel,
+QFrame#analysisFeedback, QFrame#parameterTile,
+QFrame#themeSelectorPanel { background: rgba(12, 16, 21, 230); }
+QListWidget#candidateList, QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {
+    background: rgba(7, 10, 14, 238);
+}
+QLabel#courtBackgroundPreview {
+    color: #c7ced6;
+    background: rgba(5, 8, 12, 230);
+    border: 2px solid #536171;
+    padding: 2px;
+}
 """
 
 DARK_STYLE_SHEET += PIXEL_COMMON_STYLE + PIXEL_DARK_STYLE

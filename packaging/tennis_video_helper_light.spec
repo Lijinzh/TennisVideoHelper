@@ -17,6 +17,10 @@ icon_files = [
     (str(project_root / "assets" / "icons" / icon_name), "assets/icons")
     for icon_name in ("app_icon.png", "app_icon.ico")
 ]
+background_files = [
+    (str(path), "assets/backgrounds")
+    for path in (project_root / "assets" / "backgrounds").glob("*.webp")
+]
 
 excluded_modules = [
     "torch",
@@ -54,7 +58,7 @@ excluded_modules = [
 common = dict(
     pathex=[str(project_root / "src")],
     binaries=[],
-    datas=[*runtime_files, *model_files, *icon_files],
+    datas=[*runtime_files, *model_files, *icon_files, *background_files],
     hiddenimports=["onnxruntime.capi._pybind_state"],
     hookspath=[],
     hooksconfig={},

@@ -691,6 +691,9 @@ def test_playback_rate_and_input_path_are_restored_on_next_launch(
 
 def test_window_theme_can_switch_between_system_light_and_dark_styles() -> None:
     app = QApplication.instance() or QApplication([])
+    settings = gui_module._application_settings()
+    previous = settings.value(gui_module.COURT_BACKGROUND_SETTINGS_KEY, None)
+    settings.setValue(gui_module.COURT_BACKGROUND_SETTINGS_KEY, "classic")
     window = MainWindow()
 
     window._apply_theme(False)
@@ -704,6 +707,11 @@ def test_window_theme_can_switch_between_system_light_and_dark_styles() -> None:
     assert "background: #0a0b0d" in window.styleSheet()
 
     window.close()
+    if previous is None:
+        settings.remove(gui_module.COURT_BACKGROUND_SETTINGS_KEY)
+    else:
+        settings.setValue(gui_module.COURT_BACKGROUND_SETTINGS_KEY, previous)
+    settings.sync()
     app.processEvents()
 
 
@@ -725,6 +733,66 @@ def test_pixel_theme_uses_segmented_progress_and_readable_chinese_font() -> None
     assert window.settings_button.parentWidget().height() >= 64
 
     window.close()
+    app.processEvents()
+
+
+def test_court_background_switches_live_and_is_persisted() -> None:
+    app = QApplication.instance() or QApplication([])
+    settings = gui_module._application_settings()
+    previous = settings.value(gui_module.COURT_BACKGROUND_SETTINGS_KEY, None)
+    settings.setValue(gui_module.COURT_BACKGROUND_SETTINGS_KEY, "classic")
+    window = MainWindow()
+
+    labels = [
+        window.court_background_combo.itemText(index)
+        for index in range(window.court_background_combo.count())
+    ]
+    assert labels == [theme.label for theme in gui_module.COURT_BACKGROUND_THEMES]
+
+    window._set_court_background("shanbei-loess")
+    assert window._court_background_id == "shanbei-loess"
+    assert window._dark_theme is True
+    assert window.background_viewport.has_background is True
+    assert gui_module.COURT_BACKGROUND_STYLE in window.styleSheet()
+    assert (
+        settings.value(gui_module.COURT_BACKGROUND_SETTINGS_KEY)
+        == "shanbei-loess"
+    )
+    assert window.court_background_combo.currentData() == "shanbei-loess"
+    assert window.court_background_preview.pixmap().isNull() is False
+
+    window._set_court_background("classic")
+    assert window.background_viewport.has_background is False
+    assert gui_module.COURT_BACKGROUND_STYLE not in window.styleSheet()
+
+    window.close()
+    if previous is None:
+        settings.remove(gui_module.COURT_BACKGROUND_SETTINGS_KEY)
+    else:
+        settings.setValue(gui_module.COURT_BACKGROUND_SETTINGS_KEY, previous)
+    settings.sync()
+    app.processEvents()
+
+
+def test_saved_court_background_is_restored_on_startup() -> None:
+    app = QApplication.instance() or QApplication([])
+    settings = gui_module._application_settings()
+    previous = settings.value(gui_module.COURT_BACKGROUND_SETTINGS_KEY, None)
+    settings.setValue(gui_module.COURT_BACKGROUND_SETTINGS_KEY, "australian-open")
+    settings.sync()
+
+    window = MainWindow()
+    assert window._court_background_id == "australian-open"
+    assert window.court_background_combo.currentData() == "australian-open"
+    assert window.background_viewport.has_background is True
+    assert gui_module.COURT_BACKGROUND_STYLE in window.styleSheet()
+
+    window.close()
+    if previous is None:
+        settings.remove(gui_module.COURT_BACKGROUND_SETTINGS_KEY)
+    else:
+        settings.setValue(gui_module.COURT_BACKGROUND_SETTINGS_KEY, previous)
+    settings.sync()
     app.processEvents()
 
 

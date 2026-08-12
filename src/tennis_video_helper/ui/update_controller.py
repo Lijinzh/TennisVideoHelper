@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import datetime, time, timedelta
 import hashlib
 import os
 from pathlib import Path
 import sys
 from typing import Callable
 
-from PySide6.QtCore import QObject, QProcess, QSettings, QStandardPaths, QUrl
+from PySide6.QtCore import (
+    QObject,
+    QProcess,
+    QSettings,
+    QStandardPaths,
+    QTimer,
+    QUrl,
+)
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QProgressDialog
 
@@ -23,8 +30,12 @@ from tennis_video_helper.app.updater import (
 )
 
 
+DAILY_AUTO_CHECK_TIME = time(hour=10, minute=0)
+_MAX_QT_TIMER_INTERVAL_MS = 2_147_000_000
+
+
 class UpdateController(QObject):
-    """每天后台检查一次，并在用户确认后下载和启动安装程序。"""
+    """首次启动立即检查，之后每天固定时间检查并安装可信更新。"""
 
     def __init__(
         self,
@@ -33,13 +44,20 @@ class UpdateController(QObject):
         *,
         current_version: str,
         task_running: Callable[[], bool],
+        now_provider: Callable[[], datetime] = datetime.now,
+        packaged_app: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(window)
         self.window = window
         self.settings = settings
         self.current_version = current_version
         self.task_running = task_running
+        self._now = now_provider
+        self._packaged_app = packaged_app or _is_packaged_windows_app
         self.network = QNetworkAccessManager(self)
+        self.daily_check_timer = QTimer(self)
+        self.daily_check_timer.setSingleShot(True)
+        self.daily_check_timer.timeout.connect(self._daily_check_due)
         self.check_reply: QNetworkReply | None = None
         self.download_reply: QNetworkReply | None = None
         self.progress_dialog: QProgressDialog | None = None
@@ -52,27 +70,51 @@ class UpdateController(QObject):
         self.auto_enabled = _settings_bool(settings, "updates/auto_check", True)
 
     def schedule_auto_check(self) -> None:
-        if not self.auto_enabled or not _is_packaged_windows_app():
+        """安排首次检查或下一次本机时间 10:00 的每日检查。"""
+
+        self.daily_check_timer.stop()
+        if not self._automatic_checks_available():
             return
+        now = self._now()
         last_check = str(self.settings.value("updates/last_check_date", "") or "")
-        if last_check != date.today().isoformat():
-            self.check_for_updates(manual=False)
+        today = now.date().isoformat()
+
+        # 从未成功检查过代表首次启动，不能等到固定时刻才检查。
+        if not last_check:
+            if not self.check_for_updates(manual=False):
+                self._arm_next_daily_check(now)
+            return
+
+        # 软件在 10:00 之后才启动时，补做当天尚未完成的检查。
+        if last_check != today and _is_at_or_after_daily_check(now):
+            if not self.check_for_updates(manual=False):
+                self._arm_next_daily_check(now)
+            return
+
+        self._arm_next_daily_check(now)
 
     def set_auto_enabled(self, enabled: bool) -> None:
         self.auto_enabled = bool(enabled)
         self.settings.setValue("updates/auto_check", self.auto_enabled)
+        self.settings.sync()
+        if self.auto_enabled:
+            self.schedule_auto_check()
+        else:
+            self.daily_check_timer.stop()
 
-    def check_for_updates(self, *, manual: bool = True) -> None:
+    def check_for_updates(self, *, manual: bool = True) -> bool:
         if self.check_reply is not None or self.download_reply is not None:
             if manual:
                 QMessageBox.information(self.window, "检查更新", "更新任务正在进行中。")
-            return
+            return False
         self._manual_check = manual
         request = _network_request(GITHUB_LATEST_RELEASE_API)
         self.check_reply = self.network.get(request)
         self.check_reply.finished.connect(self._finish_check)
+        return True
 
     def shutdown(self) -> None:
+        self.daily_check_timer.stop()
         for reply in (self.check_reply, self.download_reply):
             if reply is not None:
                 reply.abort()
@@ -97,15 +139,20 @@ class UpdateController(QObject):
                     "检查更新失败",
                     f"暂时无法连接更新服务器：{error_text}",
                 )
+            self._arm_next_daily_check()
             return
         try:
             release = parse_github_release(payload, current_version=self.current_version)
         except UpdateMetadataError as exc:
             if self._manual_check:
                 QMessageBox.warning(self.window, "检查更新失败", str(exc))
+            self._arm_next_daily_check()
             return
 
-        self.settings.setValue("updates/last_check_date", date.today().isoformat())
+        self.settings.setValue(
+            "updates/last_check_date", self._now().date().isoformat()
+        )
+        self.settings.sync()
         if release is None:
             if self._manual_check:
                 QMessageBox.information(
@@ -113,8 +160,33 @@ class UpdateController(QObject):
                     "已经是最新版本",
                     f"当前版本 {self.current_version} 已经是最新版本。",
                 )
+            self._arm_next_daily_check()
             return
         self._offer_download(release)
+        self._arm_next_daily_check()
+
+    def _daily_check_due(self) -> None:
+        if not self._automatic_checks_available():
+            return
+        if not self.check_for_updates(manual=False):
+            self._arm_next_daily_check()
+
+    def _automatic_checks_available(self) -> bool:
+        return self.auto_enabled and self._packaged_app()
+
+    def _arm_next_daily_check(self, now: datetime | None = None) -> None:
+        self.daily_check_timer.stop()
+        if not self._automatic_checks_available():
+            return
+        current_time = now or self._now()
+        last_check = str(
+            self.settings.value("updates/last_check_date", "") or ""
+        )
+        delay_ms = milliseconds_until_daily_check(
+            current_time,
+            checked_today=last_check == current_time.date().isoformat(),
+        )
+        self.daily_check_timer.start(delay_ms)
 
     def _offer_download(self, release: ReleaseUpdate) -> None:
         size_mib = release.size / (1024 * 1024)
@@ -319,6 +391,24 @@ def _network_request(url: str) -> QNetworkRequest:
 
 def _is_packaged_windows_app() -> bool:
     return os.name == "nt" and bool(getattr(sys, "frozen", False))
+
+
+def milliseconds_until_daily_check(
+    now: datetime,
+    *,
+    checked_today: bool = False,
+) -> int:
+    """返回从当前本机时间到下一次每日检查的毫秒数。"""
+
+    target = datetime.combine(now.date(), DAILY_AUTO_CHECK_TIME)
+    if checked_today or target <= now:
+        target += timedelta(days=1)
+    delay_ms = max(1, round((target - now).total_seconds() * 1000))
+    return min(delay_ms, _MAX_QT_TIMER_INTERVAL_MS)
+
+
+def _is_at_or_after_daily_check(now: datetime) -> bool:
+    return now.time() >= DAILY_AUTO_CHECK_TIME
 
 
 def _settings_bool(settings: QSettings, key: str, default: bool) -> bool:

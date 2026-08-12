@@ -10,6 +10,7 @@ import sys
 PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parents[1]
 _ASSET_ENVIRONMENT = {
+    "backgrounds": "TVH_BACKGROUND_DIR",
     "icons": "TVH_ICON_DIR",
     "models": "TVH_MODEL_DIR",
 }

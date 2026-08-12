@@ -26,6 +26,10 @@ icon_files = [
     (str(project_root / "assets" / "icons" / icon_name), "assets/icons")
     for icon_name in ("app_icon.png", "app_icon.ico")
 ]
+background_files = [
+    (str(path), "assets/backgrounds")
+    for path in (project_root / "assets" / "backgrounds").glob("*.webp")
+]
 engine_cache = Path.home() / ".cache" / "tennis-video-helper" / "engines"
 engine_files = (
     [(str(path), "engines") for path in engine_cache.glob("*.engine")]
@@ -82,7 +86,14 @@ a = Analysis(
     [str(project_root / "src" / "tennis_video_helper" / "ui" / "main_window.py")],
     pathex=[str(project_root / "src")],
     binaries=pynv_binaries,
-    datas=[*runtime_files, *model_files, *engine_files, *icon_files, *pynv_datas],
+    datas=[
+        *runtime_files,
+        *model_files,
+        *engine_files,
+        *icon_files,
+        *background_files,
+        *pynv_datas,
+    ],
     hiddenimports=["tennis_video_helper.app.cli", *pynv_hiddenimports],
     hookspath=[],
     hooksconfig={},
@@ -97,7 +108,14 @@ worker_a = Analysis(
     [str(project_root / "src" / "tennis_video_helper" / "app" / "cli.py")],
     pathex=[str(project_root / "src")],
     binaries=pynv_binaries,
-    datas=[*runtime_files, *model_files, *engine_files, *icon_files, *pynv_datas],
+    datas=[
+        *runtime_files,
+        *model_files,
+        *engine_files,
+        *icon_files,
+        *background_files,
+        *pynv_datas,
+    ],
     hiddenimports=pynv_hiddenimports,
     hookspath=[],
     hooksconfig={},

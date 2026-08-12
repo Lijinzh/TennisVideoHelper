@@ -6,10 +6,14 @@ from tennis_video_helper import resources
 def test_source_assets_resolve_from_grouped_directories() -> None:
     icon = resources.asset_path("icons", "app_icon.png")
     pose_model = resources.asset_path("models", "yolo11n-pose.onnx")
+    background = resources.asset_path("backgrounds", "shanbei-loess-court.webp")
 
     assert icon == (resources.PROJECT_ROOT / "assets/icons/app_icon.png").resolve()
     assert pose_model == (
         resources.PROJECT_ROOT / "assets/models/yolo11n-pose.onnx"
+    ).resolve()
+    assert background == (
+        resources.PROJECT_ROOT / "assets/backgrounds/shanbei-loess-court.webp"
     ).resolve()
 
 

@@ -20,6 +20,16 @@ def test_personal_github_pages_site_has_required_assets() -> None:
         "assets/images/tennis-video-helper/wimbledon-grass-court.webp",
         "assets/images/tennis-video-helper/us-open-night-court.webp",
         "assets/images/tennis-video-helper/australian-open-day-court.webp",
+        "assets/images/tennis-video-helper/shanghai-qizhong-court.webp",
+        "assets/images/tennis-video-helper/beijing-national-tennis-center.webp",
+        "assets/images/tennis-video-helper/madrid-caja-magica-court.webp",
+        "assets/images/tennis-video-helper/rio-jockey-club-court.webp",
+        "assets/images/tennis-video-helper/indian-wells-desert-court.webp",
+        "assets/images/tennis-video-helper/dunhuang-desert-court.webp",
+        "assets/images/tennis-video-helper/himalaya-foothills-court.webp",
+        "assets/images/tennis-video-helper/larung-gar-valley-court.webp",
+        "assets/images/tennis-video-helper/hyrule-inspired-court.webp",
+        "assets/images/tennis-video-helper/ashina-inspired-court.webp",
     ]
     for relative_path in required:
         assert (SITE / relative_path).is_file(), relative_path
@@ -50,8 +60,20 @@ def test_homepage_includes_scrollable_pixel_court_gallery() -> None:
     assert "温布尔登草地球场" in html
     assert "美网纽约夜场硬地" in html
     assert "澳网墨尔本蓝色硬地" in html
-    assert html.count("data-court-slide") == 5
-    assert html.count("data-court-tab=") == 5
+    assert "上海大师赛·旗忠网球中心" in html
+    assert "北京国家网球中心·钻石球场" in html
+    assert "马德里·魔力盒红土" in html
+    assert "里约·赛马会红土" in html
+    assert "敦煌·鸣沙月泉概念场" in html
+    assert "喜马拉雅山脚概念场" in html
+    assert "喇荣山谷概念球场" in html
+    assert "《塞尔达传说》灵感·海拉鲁式旷野" in html
+    assert "《只狼》灵感·苇名式山城" in html
+    assert html.count("data-court-slide") == 15
+    assert html.count("data-court-tab=") == 15
+    assert html.count("真实名场") >= 9
+    assert html.count("概念创作") >= 5
+    assert "不把球场误写进鸟巢内部" in html
     assert ".tennis-court-section" in css
     assert "scroll-snap-type: x mandatory" in css
     assert "image-rendering: pixelated" in css

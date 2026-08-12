@@ -94,8 +94,21 @@
 .tennis-court-slide[data-court-theme="grass"] { --court-accent: #b7d45a; --court-shadow: #15392c; --court-panel: #0c2b20; }
 .tennis-court-slide[data-court-theme="night"] { --court-accent: #4fd8ff; --court-shadow: #070e3b; --court-panel: #07163d; }
 .tennis-court-slide[data-court-theme="australia"] { --court-accent: #7ce7ff; --court-shadow: #063d78; --court-panel: #062c61; }
+.tennis-court-slide[data-court-theme="shanghai"] { --court-accent: #72ecda; --court-shadow: #063c55; --court-panel: #062d42; }
+.tennis-court-slide[data-court-theme="beijing"] { --court-accent: #ffb34f; --court-shadow: #4d1d3f; --court-panel: #33172d; }
+.tennis-court-slide[data-court-theme="madrid"] { --court-accent: #ff8c4b; --court-shadow: #28242a; --court-panel: #1b191d; }
+.tennis-court-slide[data-court-theme="rio"] { --court-accent: #8de260; --court-shadow: #173f2a; --court-panel: #102e20; }
+.tennis-court-slide[data-court-theme="desert-hard"] { --court-accent: #ffd05d; --court-shadow: #294d54; --court-panel: #1b373b; }
+.tennis-court-slide[data-court-theme="dunhuang"] { --court-accent: #ffd16f; --court-shadow: #5a2733; --court-panel: #3d2029; }
+.tennis-court-slide[data-court-theme="himalaya"] { --court-accent: #b9edff; --court-shadow: #23455e; --court-panel: #173143; }
+.tennis-court-slide[data-court-theme="larung"] { --court-accent: #f1b06a; --court-shadow: #571f25; --court-panel: #3b171b; }
+.tennis-court-slide[data-court-theme="hyrule"] { --court-accent: #6effc6; --court-shadow: #154b54; --court-panel: #10363d; }
+.tennis-court-slide[data-court-theme="ashina"] { --court-accent: #e25748; --court-shadow: #201d28; --court-panel: #17151d; }
 .tennis-court-slide__copy { align-self: center; }
-.tennis-court-number { display: inline-block; margin-bottom: 18px; padding: 7px 9px; color: var(--court-shadow); background: var(--court-accent); box-shadow: 4px 4px 0 var(--court-shadow); font: 900 11px/1 "Courier New", monospace; letter-spacing: .1em; }
+.tennis-court-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 18px; }
+.tennis-court-number { display: inline-block; padding: 7px 9px; color: var(--court-shadow); background: var(--court-accent); box-shadow: 4px 4px 0 var(--court-shadow); font: 900 11px/1 "Courier New", monospace; letter-spacing: .1em; }
+.tennis-court-kind { display: inline-block; padding: 7px 9px; color: #fff1ca; background: transparent; border: 2px solid var(--court-accent); font: 900 11px/1 var(--ui-sans); letter-spacing: .08em; }
+.tennis-court-kind.is-concept { border-style: dashed; }
 .tennis-court-slide h3 { margin-bottom: 18px; color: #fff1ca; font-family: var(--display-serif); font-size: clamp(38px, 4.2vw, 60px); line-height: .98; letter-spacing: -.045em; }
 .tennis-court-slide__copy p { color: #ffe5b2; font-size: 16px; font-weight: 650; line-height: 1.82; }
 .tennis-court-slide__copy small { display: block; padding-top: 15px; color: var(--court-accent); border-top: 2px dashed rgba(255, 229, 178, .45); font: 900 11px/1.5 "Courier New", monospace; }

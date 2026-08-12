@@ -75,10 +75,10 @@
     <section class="tennis-court-section" id="courts" aria-labelledby="courts-title" data-court-gallery>
       <header class="tennis-court-heading" data-pixel-reveal>
         <div>
-          <p class="tennis-kicker"><span>PIXEL COURT TOUR</span> 五种场地，一次横向巡游</p>
+          <p class="tennis-kicker"><span>PIXEL COURT TOUR</span> 十五座球场，一次横向巡游</p>
           <h2 id="courts-title">切换你的像素球场</h2>
         </div>
-        <p>从陕北黄土沟壑到巴黎红土、伦敦草地、纽约夜场和墨尔本夏日硬地。点击风格按钮或左右箭头切换，也可以用鼠标、触摸板或手机手势横向滚动。</p>
+        <p>世界名场与中国风景在这里并肩出现：真实赛事场馆标注为“真实名场”，敦煌、喜马拉雅、喇荣以及游戏灵感球场则明确标注为“概念创作”。点击按钮、箭头或横向滑动即可巡游。</p>
       </header>
 
       <div class="tennis-court-toolbar" data-pixel-reveal>
@@ -88,10 +88,20 @@
           <button type="button" role="tab" aria-selected="false" aria-controls="court-london" data-court-tab="court-london">温网草地</button>
           <button type="button" role="tab" aria-selected="false" aria-controls="court-new-york" data-court-tab="court-new-york">美网夜场</button>
           <button type="button" role="tab" aria-selected="false" aria-controls="court-melbourne" data-court-tab="court-melbourne">澳网蓝场</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-shanghai" data-court-tab="court-shanghai">上海大师赛</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-beijing" data-court-tab="court-beijing">北京钻石</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-madrid" data-court-tab="court-madrid">马德里魔力盒</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-rio" data-court-tab="court-rio">里约红土</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-indian-wells" data-court-tab="court-indian-wells">沙漠花园</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-dunhuang" data-court-tab="court-dunhuang">敦煌月泉</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-himalaya" data-court-tab="court-himalaya">喜马拉雅</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-larung" data-court-tab="court-larung">喇荣山谷</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-hyrule" data-court-tab="court-hyrule">海拉鲁式旷野</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-ashina" data-court-tab="court-ashina">苇名式山城</button>
         </div>
         <div class="tennis-court-arrows" aria-label="球场切换">
           <button type="button" data-court-previous aria-label="上一个球场">←</button>
-          <span data-court-position aria-live="polite">01 / 05</span>
+          <span data-court-position aria-live="polite">01 / 15</span>
           <button type="button" data-court-next aria-label="下一个球场">→</button>
         </div>
       </div>
@@ -100,7 +110,7 @@
         <div class="tennis-court-track">
           <article class="tennis-court-slide is-active" id="court-shanbei" role="tabpanel" aria-label="陕北风黄土球场" data-court-slide data-court-theme="loess">
             <div class="tennis-court-slide__copy">
-              <span class="tennis-court-number">COURT 01</span>
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 01</span><span class="tennis-court-kind is-concept">概念创作</span></div>
               <h3>陕北风黄土球场</h3>
               <p>黄土沟壑、窑洞院落与暖色夕照围住一座完整球场，木围栏和梯田层次让它拥有独一份的陕北气质。</p>
               <small>黄土沟壑 / 窑洞 / 暖色夕照</small>
@@ -114,7 +124,7 @@
 
           <article class="tennis-court-slide" id="court-paris" role="tabpanel" aria-label="法网罗兰加洛斯红土球场" data-court-slide data-court-theme="clay">
             <div class="tennis-court-slide__copy">
-              <span class="tennis-court-number">COURT 02</span>
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 02</span><span class="tennis-court-kind">真实名场</span></div>
               <h3>法网·罗兰加洛斯红土</h3>
               <p>砖红色红土与深绿看台构成经典对比，远处的巴黎城市轮廓把春日大赛气氛收进像素画面。</p>
               <small>红土 / 深绿看台 / 巴黎春日</small>
@@ -128,7 +138,7 @@
 
           <article class="tennis-court-slide" id="court-london" role="tabpanel" aria-label="温布尔登草地球场" data-court-slide data-court-theme="grass">
             <div class="tennis-court-slide__copy">
-              <span class="tennis-court-number">COURT 03</span>
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 03</span><span class="tennis-court-kind">真实名场</span></div>
               <h3>温布尔登草地球场</h3>
               <p>清晰的修剪草纹、底线磨损、常春藤与传统英伦建筑，组成安静而庄重的夏日草地赛场。</p>
               <small>草地 / 常春藤 / 英伦夏日</small>
@@ -142,7 +152,7 @@
 
           <article class="tennis-court-slide" id="court-new-york" role="tabpanel" aria-label="美网纽约夜场硬地球场" data-court-slide data-court-theme="night">
             <div class="tennis-court-slide__copy">
-              <span class="tennis-court-number">COURT 04</span>
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 04</span><span class="tennis-court-kind">真实名场</span></div>
               <h3>美网纽约夜场硬地</h3>
               <p>电光蓝硬地、巨型灯架与霓虹城市天际线，让这一站成为整组球场里最鲜明的夜赛场景。</p>
               <small>蓝色硬地 / 夜赛灯光 / 纽约天际线</small>
@@ -156,7 +166,7 @@
 
           <article class="tennis-court-slide" id="court-melbourne" role="tabpanel" aria-label="澳网墨尔本蓝色硬地球场" data-court-slide data-court-theme="australia">
             <div class="tennis-court-slide__copy">
-              <span class="tennis-court-number">COURT 05</span>
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 05</span><span class="tennis-court-kind">真实名场</span></div>
               <h3>澳网墨尔本蓝色硬地</h3>
               <p>明亮青蓝球场、开放式现代屋顶与桉树绿意，呈现通透、热烈而富有速度感的澳洲盛夏。</p>
               <small>青蓝硬地 / 现代场馆 / 澳洲盛夏</small>
@@ -165,6 +175,146 @@
               <div class="tennis-window-bar"><span>MELBOURNE_DAY_COURT.PIX</span><i></i><i></i><i></i></div>
               <img src="assets/images/tennis-video-helper/australian-open-day-court.webp" width="1536" height="1024" alt="像素风墨尔本日间青蓝色硬地网球场和现代开放式场馆" loading="lazy">
               <figcaption><span>DAY HARD</span> 墨尔本盛夏蓝场氛围</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-shanghai" role="tabpanel" aria-label="上海大师赛旗忠网球中心" data-court-slide data-court-theme="shanghai">
+            <div class="tennis-court-slide__copy">
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 06</span><span class="tennis-court-kind">真实名场</span></div>
+              <h3>上海大师赛·旗忠网球中心</h3>
+              <p>玉兰花瓣般展开的可开合屋顶俯瞰蓝绿硬地，把上海秋日的速度感与现代建筑气质收进同一幅像素画。</p>
+              <small>蓝绿硬地 / 玉兰屋顶 / 上海秋日</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>SHANGHAI_QIZHONG_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/shanghai-qizhong-court.webp" width="1536" height="1024" alt="像素风上海旗忠网球中心玉兰花瓣屋顶和蓝绿硬地球场" loading="lazy">
+              <figcaption><span>HARD</span> 上海大师赛旗忠网球中心</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-beijing" role="tabpanel" aria-label="北京国家网球中心钻石球场" data-court-slide data-court-theme="beijing">
+            <div class="tennis-court-slide__copy">
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 07</span><span class="tennis-court-kind">真实名场</span></div>
+              <h3>北京国家网球中心·钻石球场</h3>
+              <p>紫蓝硬地嵌进钻石切面的现代场馆，远处借鸟巢天际线点出北京坐标；这里是国家网球中心，不把球场误写进鸟巢内部。</p>
+              <small>紫蓝硬地 / 钻石球场 / 鸟巢远景</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>BEIJING_DIAMOND_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/beijing-national-tennis-center.webp" width="1536" height="1024" alt="像素风北京国家网球中心钻石球场和远处鸟巢天际线" loading="lazy">
+              <figcaption><span>CHINA</span> 北京国家网球中心</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-madrid" role="tabpanel" aria-label="马德里魔力盒红土球场" data-court-slide data-court-theme="madrid">
+            <div class="tennis-court-slide__copy">
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 08</span><span class="tennis-court-kind">真实名场</span></div>
+              <h3>马德里·魔力盒红土</h3>
+              <p>砖红红土与黑灰钢结构形成强烈反差，可开合的几何屋顶让西班牙首都这座球场拥有近乎舞台装置般的辨识度。</p>
+              <small>红土 / 几何屋顶 / 马德里暮色</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>MADRID_MAGIC_BOX_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/madrid-caja-magica-court.webp" width="1536" height="1024" alt="像素风马德里魔力盒红土球场和可开合几何屋顶" loading="lazy">
+              <figcaption><span>CLAY</span> 马德里魔力盒球场</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-rio" role="tabpanel" aria-label="里约热内卢赛马会红土球场" data-court-slide data-court-theme="rio">
+            <div class="tennis-court-slide__copy">
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 09</span><span class="tennis-court-kind">真实名场</span></div>
+              <h3>里约·赛马会红土</h3>
+              <p>橙红球场被棕榈、殖民风建筑与热带山景包围，远处基督像剪影把南美阳光和城市节奏带进比赛现场。</p>
+              <small>红土 / 热带绿意 / 里约山景</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>RIO_JOCKEY_CLUB_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/rio-jockey-club-court.webp" width="1536" height="1024" alt="像素风里约赛马会红土球场、棕榈与基督像山景" loading="lazy">
+              <figcaption><span>CLAY</span> 里约赛马会球场</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-indian-wells" role="tabpanel" aria-label="印第安维尔斯沙漠网球花园" data-court-slide data-court-theme="desert-hard">
+            <div class="tennis-court-slide__copy">
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 10</span><span class="tennis-court-kind">真实名场</span></div>
+              <h3>印第安维尔斯·沙漠花园</h3>
+              <p>蓝色硬地、成排棕榈与科切拉谷山脉在夕阳中相遇，球场像一块被精心灌溉出来的沙漠绿洲。</p>
+              <small>蓝色硬地 / 棕榈 / 沙漠山脉</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>INDIAN_WELLS_GARDEN.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/indian-wells-desert-court.webp" width="1536" height="1024" alt="像素风印第安维尔斯蓝色硬地、棕榈和沙漠山脉" loading="lazy">
+              <figcaption><span>DESERT HARD</span> 印第安维尔斯网球花园</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-dunhuang" role="tabpanel" aria-label="敦煌鸣沙山月牙泉概念网球场" data-court-slide data-court-theme="dunhuang">
+            <div class="tennis-court-slide__copy">
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 11</span><span class="tennis-court-kind is-concept">概念创作</span></div>
+              <h3>敦煌·鸣沙月泉概念场</h3>
+              <p>琥珀色沙丘托起赭红球场，月牙泉、丝路驿亭和一弯新月留在远处。这是一幅风景化想象，不对应现实场馆。</p>
+              <small>概念创作 / 鸣沙山 / 月牙泉</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>DUNHUANG_DESERT_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/dunhuang-desert-court.webp" width="1536" height="1024" alt="像素风敦煌沙丘、月牙泉和丝路驿亭旁的概念网球场" loading="lazy">
+              <figcaption><span>CONCEPT</span> 敦煌风景概念球场</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-himalaya" role="tabpanel" aria-label="喜马拉雅山脚概念网球场" data-court-slide data-court-theme="himalaya">
+            <div class="tennis-court-slide__copy">
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 12</span><span class="tennis-court-kind is-concept">概念创作</span></div>
+              <h3>喜马拉雅山脚概念场</h3>
+              <p>深青球场落在高原谷地，雪峰、冰川、晨光与薄雾构成安静而巨大的背景，强调人与自然尺度之间的反差。</p>
+              <small>概念创作 / 雪峰 / 高原晨光</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>HIMALAYA_FOOTHILLS_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/himalaya-foothills-court.webp" width="1536" height="1024" alt="像素风喜马拉雅雪山脚下高原谷地中的概念网球场" loading="lazy">
+              <figcaption><span>CONCEPT</span> 喜马拉雅山脚概念球场</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-larung" role="tabpanel" aria-label="喇荣山谷概念网球场" data-court-slide data-court-theme="larung">
+            <div class="tennis-court-slide__copy">
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 13</span><span class="tennis-court-kind is-concept">概念创作</span></div>
+              <h3>喇荣山谷概念球场</h3>
+              <p>受喇荣五明佛学院所在山谷的红色木屋景观启发，球场设置在开阔谷地而非宗教建筑内部，以克制方式保留高原聚落的视觉震撼。</p>
+              <small>概念创作 / 红色山城 / 川西高原</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>LARUNG_VALLEY_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/larung-gar-valley-court.webp" width="1536" height="1024" alt="像素风川西高原红色山城景观旁的概念网球场" loading="lazy">
+              <figcaption><span>CONCEPT</span> 喇荣山谷景观灵感</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-hyrule" role="tabpanel" aria-label="塞尔达传说海拉鲁式旷野灵感概念网球场" data-court-slide data-court-theme="hyrule">
+            <div class="tennis-court-slide__copy">
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 14</span><span class="tennis-court-kind is-concept">幻想灵感</span></div>
+              <h3>《塞尔达传说》灵感·海拉鲁式旷野</h3>
+              <p>翠绿草原、漂浮岛屿、古代石塔与蓝色能量装置围住一片草地球场，保留开放世界冒险感，但不使用角色、Logo 或具体关卡复制。</p>
+              <small>幻想灵感 / 开放旷野 / 浮空遗迹</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>HYRULE_INSPIRED_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/hyrule-inspired-court.webp" width="1536" height="1024" alt="像素风海拉鲁式开放旷野、浮空遗迹和古代装置中的概念网球场" loading="lazy">
+              <figcaption><span>FANTASY</span> 海拉鲁式旷野灵感</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-ashina" role="tabpanel" aria-label="只狼苇名式山城灵感概念网球场" data-court-slide data-court-theme="ashina">
+            <div class="tennis-court-slide__copy">
+              <div class="tennis-court-meta"><span class="tennis-court-number">COURT 15</span><span class="tennis-court-kind is-concept">幻想灵感</span></div>
+              <h3>《只狼》灵感·苇名式山城</h3>
+              <p>深灰球场嵌在险峻战国山城庭院，天守、雪峰、枯松与朱桥营造肃穆压迫感，同样不使用角色、Logo 或具体关卡复制。</p>
+              <small>幻想灵感 / 战国山城 / 雪峰薄雾</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>ASHINA_INSPIRED_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/ashina-inspired-court.webp" width="1536" height="1024" alt="像素风苇名式战国山城、雪峰和朱桥旁的概念网球场" loading="lazy">
+              <figcaption><span>FANTASY</span> 苇名式山城灵感</figcaption>
             </figure>
           </article>
         </div>
