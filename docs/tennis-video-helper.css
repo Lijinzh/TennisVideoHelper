@@ -199,6 +199,9 @@
 .tennis-faq summary { padding: 24px 4px; font-size: 18px; font-weight: 900; cursor: pointer; }
 .tennis-faq details p { max-width: 820px; padding: 0 4px 24px; color: var(--muted); line-height: 1.8; }
 .tennis-footer { border-top: 3px solid var(--ink); }
+.tennis-footer__credits { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; align-items: center; }
+.tennis-footer__credits strong { color: var(--orange); font: 900 14px/1.4 "Courier New", monospace; letter-spacing: .06em; }
+.tennis-footer__credits span { color: var(--ink); font: 800 12px/1.5 "Courier New", monospace; letter-spacing: .03em; }
 
 [data-pixel-reveal] { opacity: 0; transform: translateY(22px); transition: opacity .48s ease, transform .48s steps(4, end); }
 [data-pixel-reveal].is-visible { opacity: 1; transform: none; }
@@ -272,6 +275,7 @@
   .tennis-feedback-flow li > span { width: 44px; height: 44px; }
   .tennis-feedback-dialog { width: calc(100% - 20px); max-height: calc(100vh - 20px); box-shadow: 7px 7px 0 var(--orange); }
   .tennis-feedback-form { padding: 20px 16px; }
+  .tennis-footer__credits { display: grid; justify-content: start; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -65,3 +65,11 @@ def test_github_user_feedback_issue_form_exists() -> None:
     template_text = template.read_text(encoding="utf-8")
     assert "name: 用户意见反馈" in template_text
     assert 'labels: ["user feedback"]' in template_text
+
+
+def test_footer_clearly_credits_golden_philosophy() -> None:
+    html = (SITE / "index.html").read_text(encoding="utf-8")
+    css = (SITE / "tennis-video-helper.css").read_text(encoding="utf-8")
+    assert "Made by Golden Philosophy" in html
+    assert "© 2026 Golden Philosophy. All rights reserved." in html
+    assert ".tennis-footer__credits" in css
