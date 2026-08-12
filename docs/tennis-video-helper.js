@@ -36,6 +36,72 @@
     });
   }
 
+  const courtGallery = document.querySelector('[data-court-gallery]');
+  if (courtGallery) {
+    const viewport = courtGallery.querySelector('[data-court-viewport]');
+    const slides = [...courtGallery.querySelectorAll('[data-court-slide]')];
+    const tabs = [...courtGallery.querySelectorAll('[data-court-tab]')];
+    const previousButton = courtGallery.querySelector('[data-court-previous]');
+    const nextButton = courtGallery.querySelector('[data-court-next]');
+    const position = courtGallery.querySelector('[data-court-position]');
+    let activeIndex = 0;
+    let scrollFrame = 0;
+
+    const setActiveCourt = (index, shouldScroll = false) => {
+      activeIndex = (index + slides.length) % slides.length;
+      slides.forEach((slide, slideIndex) => {
+        slide.classList.toggle('is-active', slideIndex === activeIndex);
+      });
+      tabs.forEach((tab, tabIndex) => {
+        tab.setAttribute('aria-selected', String(tabIndex === activeIndex));
+        tab.tabIndex = tabIndex === activeIndex ? 0 : -1;
+      });
+      if (position) {
+        position.textContent = `${String(activeIndex + 1).padStart(2, '0')} / ${String(slides.length).padStart(2, '0')}`;
+      }
+      if (shouldScroll && viewport) {
+        const slide = slides[activeIndex];
+        const left = slide.offsetLeft - (viewport.clientWidth - slide.clientWidth) / 2;
+        viewport.scrollTo({ left, behavior: 'smooth' });
+      }
+    };
+
+    const updateFromScroll = () => {
+      cancelAnimationFrame(scrollFrame);
+      scrollFrame = requestAnimationFrame(() => {
+        if (!viewport) return;
+        const center = viewport.getBoundingClientRect().left + viewport.clientWidth / 2;
+        const distances = slides.map((slide) => {
+          const rect = slide.getBoundingClientRect();
+          return Math.abs(rect.left + rect.width / 2 - center);
+        });
+        const closestIndex = distances.indexOf(Math.min(...distances));
+        if (closestIndex !== activeIndex) setActiveCourt(closestIndex);
+      });
+    };
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => setActiveCourt(index, true));
+      tab.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        const direction = event.key === 'ArrowRight' ? 1 : -1;
+        const nextIndex = (index + direction + tabs.length) % tabs.length;
+        tabs[nextIndex].focus();
+        setActiveCourt(nextIndex, true);
+      });
+    });
+    previousButton?.addEventListener('click', () => setActiveCourt(activeIndex - 1, true));
+    nextButton?.addEventListener('click', () => setActiveCourt(activeIndex + 1, true));
+    viewport?.addEventListener('scroll', updateFromScroll, { passive: true });
+    viewport?.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      setActiveCourt(activeIndex + (event.key === 'ArrowRight' ? 1 : -1), true);
+    });
+    setActiveCourt(0);
+  }
+
   const feedback = {
     issueUrl: 'https://github.com/Lijinzh/TennisVideoHelper/issues/new',
     label: 'user feedback',

@@ -13,9 +13,9 @@
   <link rel="canonical" href="https://lijinzh.github.io/TennisVideoHelper/">
   <link rel="icon" type="image/png" href="assets/images/tennis-video-helper/app-icon.png">
   <link rel="stylesheet" href="pixel-preview.css?v=20260812-tennis">
-  <link rel="stylesheet" href="tennis-video-helper.css?v=20260812-v3">
+  <link rel="stylesheet" href="tennis-video-helper.css?v=20260812-v5">
   <script src="pixel-preview.js?v=20260812-tennis" defer></script>
-  <script src="tennis-video-helper.js?v=20260812-v3" defer></script>
+  <script src="tennis-video-helper.js?v=20260812-v4" defer></script>
 </head>
 <body class="pixel-site tennis-site">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -32,6 +32,7 @@
     <button class="pixel-menu" type="button" data-pixel-menu aria-expanded="false" aria-controls="tennis-nav">MENU</button>
     <nav class="pixel-nav tennis-nav" id="tennis-nav" data-pixel-nav aria-label="页面导航">
       <a href="#overview">首页</a>
+      <a href="#courts">球场</a>
       <a href="#features">功能</a>
       <a href="#settings">设置</a>
       <a href="#progress">进度</a>
@@ -69,6 +70,106 @@
       <article><span>02</span><div><strong>人工复核</strong><small>逐段播放与击球跳转</small></div></article>
       <article><span>03</span><div><strong>GPU 加速</strong><small>NVDEC / CUDA / NVENC</small></div></article>
       <article><span>04</span><div><strong>源视频只读</strong><small>验证成功后再发布结果</small></div></article>
+    </section>
+
+    <section class="tennis-court-section" id="courts" aria-labelledby="courts-title" data-court-gallery>
+      <header class="tennis-court-heading" data-pixel-reveal>
+        <div>
+          <p class="tennis-kicker"><span>PIXEL COURT TOUR</span> 五种场地，一次横向巡游</p>
+          <h2 id="courts-title">切换你的像素球场</h2>
+        </div>
+        <p>从陕北黄土沟壑到巴黎红土、伦敦草地、纽约夜场和墨尔本夏日硬地。点击风格按钮或左右箭头切换，也可以用鼠标、触摸板或手机手势横向滚动。</p>
+      </header>
+
+      <div class="tennis-court-toolbar" data-pixel-reveal>
+        <div class="tennis-court-tabs" role="tablist" aria-label="选择像素球场风格">
+          <button type="button" role="tab" aria-selected="true" aria-controls="court-shanbei" data-court-tab="court-shanbei">陕北黄土</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-paris" data-court-tab="court-paris">巴黎红土</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-london" data-court-tab="court-london">伦敦草地</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-new-york" data-court-tab="court-new-york">纽约夜场</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="court-melbourne" data-court-tab="court-melbourne">墨尔本蓝场</button>
+        </div>
+        <div class="tennis-court-arrows" aria-label="球场切换">
+          <button type="button" data-court-previous aria-label="上一个球场">←</button>
+          <span data-court-position aria-live="polite">01 / 05</span>
+          <button type="button" data-court-next aria-label="下一个球场">→</button>
+        </div>
+      </div>
+
+      <div class="tennis-court-viewport" data-court-viewport tabindex="0" aria-label="像素球场横向画廊">
+        <div class="tennis-court-track">
+          <article class="tennis-court-slide is-active" id="court-shanbei" role="tabpanel" aria-label="陕北风黄土球场" data-court-slide data-court-theme="loess">
+            <div class="tennis-court-slide__copy">
+              <span class="tennis-court-number">COURT 01</span>
+              <h3>陕北风黄土球场</h3>
+              <p>黄土沟壑、窑洞院落与暖色夕照围住一座完整球场，木围栏和梯田层次让它拥有独一份的陕北气质。</p>
+              <small>黄土沟壑 / 窑洞 / 暖色夕照</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>SHANBEI_LOESS_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/shanbei-loess-court.webp" width="1536" height="1024" alt="像素风陕北黄土沟壑、窑洞和暖色夕照中的完整网球场" loading="lazy">
+              <figcaption><span>LOESS</span> 陕北风黄土球场</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-paris" role="tabpanel" aria-label="巴黎红土球场" data-court-slide data-court-theme="clay">
+            <div class="tennis-court-slide__copy">
+              <span class="tennis-court-number">COURT 02</span>
+              <h3>巴黎红土球场</h3>
+              <p>砖红色红土与深绿看台构成经典对比，远处的巴黎城市轮廓把春日大赛气氛收进像素画面。</p>
+              <small>红土 / 深绿看台 / 巴黎春日</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>PARIS_CLAY_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/roland-garros-clay-court.webp" width="1536" height="1024" alt="像素风巴黎红土网球场、深绿看台和城市天际线" loading="lazy">
+              <figcaption><span>CLAY</span> 巴黎大满贯红土氛围</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-london" role="tabpanel" aria-label="伦敦草地球场" data-court-slide data-court-theme="grass">
+            <div class="tennis-court-slide__copy">
+              <span class="tennis-court-number">COURT 03</span>
+              <h3>伦敦草地球场</h3>
+              <p>清晰的修剪草纹、底线磨损、常春藤与传统英伦建筑，组成安静而庄重的夏日草地赛场。</p>
+              <small>草地 / 常春藤 / 英伦夏日</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>LONDON_GRASS_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/wimbledon-grass-court.webp" width="1565" height="1005" alt="像素风伦敦草地网球场、常春藤和英伦建筑" loading="lazy">
+              <figcaption><span>GRASS</span> 伦敦传统草地氛围</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-new-york" role="tabpanel" aria-label="纽约夜场硬地球场" data-court-slide data-court-theme="night">
+            <div class="tennis-court-slide__copy">
+              <span class="tennis-court-number">COURT 04</span>
+              <h3>纽约夜场硬地</h3>
+              <p>电光蓝硬地、巨型灯架与霓虹城市天际线，让这一站成为整组球场里最鲜明的夜赛场景。</p>
+              <small>蓝色硬地 / 夜赛灯光 / 纽约天际线</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>NEW_YORK_NIGHT_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/us-open-night-court.webp" width="1536" height="1024" alt="像素风纽约夜间蓝色硬地网球场和城市天际线" loading="lazy">
+              <figcaption><span>NIGHT HARD</span> 纽约夏末夜场氛围</figcaption>
+            </figure>
+          </article>
+
+          <article class="tennis-court-slide" id="court-melbourne" role="tabpanel" aria-label="墨尔本蓝色硬地球场" data-court-slide data-court-theme="australia">
+            <div class="tennis-court-slide__copy">
+              <span class="tennis-court-number">COURT 05</span>
+              <h3>墨尔本蓝色硬地</h3>
+              <p>明亮青蓝球场、开放式现代屋顶与桉树绿意，呈现通透、热烈而富有速度感的澳洲盛夏。</p>
+              <small>青蓝硬地 / 现代场馆 / 澳洲盛夏</small>
+            </div>
+            <figure class="tennis-court-card">
+              <div class="tennis-window-bar"><span>MELBOURNE_DAY_COURT.PIX</span><i></i><i></i><i></i></div>
+              <img src="assets/images/tennis-video-helper/australian-open-day-court.webp" width="1536" height="1024" alt="像素风墨尔本日间青蓝色硬地网球场和现代开放式场馆" loading="lazy">
+              <figcaption><span>DAY HARD</span> 墨尔本盛夏蓝场氛围</figcaption>
+            </figure>
+          </article>
+        </div>
+      </div>
+      <p class="tennis-court-scroll-hint" aria-hidden="true">← 横向滚动查看更多球场 →</p>
     </section>
 
     <section class="tennis-intro" aria-labelledby="intro-title">
