@@ -44,6 +44,8 @@
   const modeButtons = [...document.querySelectorAll('button[data-color-mode]')];
   const paletteSelect = document.querySelector('select[data-theme-palette-select]');
   const themeStatus = document.querySelector('[data-theme-status]');
+  const themePreview = document.querySelector('[data-theme-preview]');
+  const themePreviewCaption = document.querySelector('[data-theme-preview-caption]');
   const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
   const storageKeys = {
     mode: 'tvh-color-mode',
@@ -52,7 +54,6 @@
   };
   const validModes = new Set(['system', 'light', 'dark']);
   const paletteLabels = {
-    default: '默认像素配色',
     follow: '跟随当前球场',
     loess: '陕北黄土',
     clay: '法网红土',
@@ -69,6 +70,23 @@
     larung: '喇荣山谷',
     hyrule: '海拉鲁式旷野',
     ashina: '苇名式山城',
+  };
+  const themeAssets = {
+    loess: 'shanbei-loess-court.webp',
+    clay: 'roland-garros-clay-court.webp',
+    grass: 'wimbledon-grass-court.webp',
+    night: 'us-open-night-court.webp',
+    australia: 'australian-open-day-court.webp',
+    shanghai: 'shanghai-qizhong-court.webp',
+    beijing: 'beijing-national-tennis-center.webp',
+    madrid: 'madrid-caja-magica-court.webp',
+    rio: 'rio-jockey-club-court.webp',
+    'desert-hard': 'indian-wells-desert-court.webp',
+    dunhuang: 'dunhuang-desert-court.webp',
+    himalaya: 'himalaya-foothills-court.webp',
+    larung: 'larung-gar-valley-court.webp',
+    hyrule: 'hyrule-inspired-court.webp',
+    ashina: 'ashina-inspired-court.webp',
   };
   const validPalettes = new Set(Object.keys(paletteLabels));
   const modeLabels = { system: '跟随系统', light: '浅色模式', dark: '深色模式' };
@@ -90,11 +108,11 @@
   };
 
   let colorMode = readStorage(storageKeys.mode, root.dataset.colorMode || 'system');
-  let paletteChoice = readStorage(storageKeys.palette, root.dataset.paletteChoice || 'default');
+  let paletteChoice = readStorage(storageKeys.palette, root.dataset.paletteChoice || 'follow');
   let activeCourtTheme = readStorage(storageKeys.court, 'loess');
   if (!validModes.has(colorMode)) colorMode = 'system';
-  if (!validPalettes.has(paletteChoice)) paletteChoice = 'default';
-  if (!validPalettes.has(activeCourtTheme) || activeCourtTheme === 'default' || activeCourtTheme === 'follow') activeCourtTheme = 'loess';
+  if (!validPalettes.has(paletteChoice)) paletteChoice = 'follow';
+  if (!themeAssets[activeCourtTheme]) activeCourtTheme = 'loess';
 
   const updateThemeStatus = () => {
     if (!themeStatus) return;
@@ -115,6 +133,13 @@
       button.setAttribute('aria-pressed', String(button.dataset.colorMode === colorMode));
     });
     if (paletteSelect) paletteSelect.value = paletteChoice;
+    const previewAsset = themeAssets[sitePalette];
+    const previewLabel = paletteLabels[sitePalette];
+    if (themePreview && previewAsset) {
+      themePreview.style.backgroundImage = `url("assets/images/tennis-video-helper/${previewAsset}")`;
+      themePreview.setAttribute('aria-label', `${previewLabel}球场背景预览`);
+    }
+    if (themePreviewCaption) themePreviewCaption.textContent = previewLabel;
     if (themeColorMeta) {
       const backgroundColor = getComputedStyle(document.body).backgroundColor;
       themeColorMeta.content = backgroundColor || (resolvedTheme === 'dark' ? '#11161d' : '#f4ead4');

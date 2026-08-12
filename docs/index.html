@@ -16,13 +16,13 @@
   <script>
     (() => {
       const validModes = new Set(['system', 'light', 'dark']);
-      const validPalettes = new Set(['default', 'follow', 'loess', 'clay', 'grass', 'night', 'australia', 'shanghai', 'beijing', 'madrid', 'rio', 'desert-hard', 'dunhuang', 'himalaya', 'larung', 'hyrule', 'ashina']);
+      const validPalettes = new Set(['follow', 'loess', 'clay', 'grass', 'night', 'australia', 'shanghai', 'beijing', 'madrid', 'rio', 'desert-hard', 'dunhuang', 'himalaya', 'larung', 'hyrule', 'ashina']);
       try {
         const mode = localStorage.getItem('tvh-color-mode');
         const paletteChoice = localStorage.getItem('tvh-palette-choice');
         const activeCourt = localStorage.getItem('tvh-active-court');
         const safeMode = validModes.has(mode) ? mode : 'system';
-        const safeChoice = validPalettes.has(paletteChoice) ? paletteChoice : 'default';
+        const safeChoice = validPalettes.has(paletteChoice) ? paletteChoice : 'follow';
         const prefersDark = matchMedia('(prefers-color-scheme: dark)').matches;
         document.documentElement.dataset.colorMode = safeMode;
         document.documentElement.dataset.resolvedTheme = safeMode === 'system' ? (prefersDark ? 'dark' : 'light') : safeMode;
@@ -31,16 +31,16 @@
       } catch {
         document.documentElement.dataset.colorMode = 'system';
         document.documentElement.dataset.resolvedTheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        document.documentElement.dataset.paletteChoice = 'default';
-        document.documentElement.dataset.sitePalette = 'default';
+        document.documentElement.dataset.paletteChoice = 'follow';
+        document.documentElement.dataset.sitePalette = 'loess';
       }
     })();
   </script>
   <link rel="stylesheet" href="pixel-preview.css?v=20260812-tennis">
-  <link rel="stylesheet" href="tennis-video-helper.css?v=20260812-v7">
+  <link rel="stylesheet" href="tennis-video-helper.css?v=20260812-v8">
   <link rel="stylesheet" href="github-star.css?v=20260812-v1">
   <script src="pixel-preview.js?v=20260812-tennis" defer></script>
-  <script src="tennis-video-helper.js?v=20260812-v7" defer></script>
+  <script src="tennis-video-helper.js?v=20260812-v8" defer></script>
   <script src="github-star.js?v=20260812-v1" defer></script>
 </head>
 <body class="pixel-site tennis-site">
@@ -79,8 +79,7 @@
               <button type="button" data-color-mode="dark" aria-pressed="false">深色</button>
             </div>
           </fieldset>
-          <label class="tennis-theme-palette"><span>页面球场配色</span><select data-theme-palette-select aria-describedby="tennis-theme-status">
-            <option value="default">默认像素配色</option>
+          <label class="tennis-theme-palette"><span>球场背景主题</span><select data-theme-palette-select aria-describedby="tennis-theme-status">
             <option value="follow">跟随当前球场</option>
             <option value="loess">陕北黄土</option>
             <option value="clay">法网红土</option>
@@ -98,7 +97,11 @@
             <option value="hyrule">海拉鲁式旷野</option>
             <option value="ashina">苇名式山城</option>
           </select></label>
-          <p id="tennis-theme-status" data-theme-status aria-live="polite">跟随系统 · 默认像素配色</p>
+          <figure class="tennis-theme-preview">
+            <div data-theme-preview role="img" aria-label="当前球场背景预览"></div>
+            <figcaption data-theme-preview-caption>陕北黄土</figcaption>
+          </figure>
+          <p id="tennis-theme-status" data-theme-status aria-live="polite">跟随系统 · 跟随球场：陕北黄土</p>
         </section>
       </div>
       <a class="tennis-back-link" href="https://github.com/Lijinzh/TennisVideoHelper" target="_blank" rel="noopener noreferrer"><span>LIJINZH / GITHUB</span><strong>查看项目仓库</strong></a>

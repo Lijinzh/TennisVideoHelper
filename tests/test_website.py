@@ -108,6 +108,34 @@ def test_homepage_supports_system_light_dark_and_court_page_themes() -> None:
     assert "tvh-active-court" in script
     assert "systemTheme.addEventListener" in script
     assert "paletteChoice === 'follow'" in script
+    assert "球场背景主题" in html
+    assert "data-theme-preview" in html
+    assert "themeAssets" in script
+    assert "shanbei-loess-court.webp" in script
+    assert '--theme-scene: url("assets/images/tennis-video-helper/shanbei-loess-court.webp")' in css
+    assert 'var(--theme-scene) center top / cover fixed' in css
+    assert ".tennis-theme-preview" in css
+    assert css.count("--theme-scene: url(") == 16
+    assert 'tennis-video-helper.css?v=20260812-v8' in html
+    assert 'tennis-video-helper.js?v=20260812-v8' in html
+    for asset in (
+        "roland-garros-clay-court.webp",
+        "wimbledon-grass-court.webp",
+        "us-open-night-court.webp",
+        "australian-open-day-court.webp",
+        "shanghai-qizhong-court.webp",
+        "beijing-national-tennis-center.webp",
+        "madrid-caja-magica-court.webp",
+        "rio-jockey-club-court.webp",
+        "indian-wells-desert-court.webp",
+        "dunhuang-desert-court.webp",
+        "himalaya-foothills-court.webp",
+        "larung-gar-valley-court.webp",
+        "hyrule-inspired-court.webp",
+        "ashina-inspired-court.webp",
+    ):
+        assert asset in script
+        assert asset in css
 
 
 def test_homepage_explains_project_architecture_for_contributors() -> None:
