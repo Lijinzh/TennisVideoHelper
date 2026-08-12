@@ -139,12 +139,13 @@ html[data-resolved-theme="dark"] .tennis-site {
 .tennis-hero__lead { max-width: 650px; color: var(--muted); font-size: 18px; font-weight: 650; line-height: 1.75; }
 .tennis-hero__actions { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 26px; }
 
-.tennis-button { display: inline-flex; align-items: center; justify-content: center; min-height: 56px; padding: 15px 21px; color: var(--paper-light); background: var(--ink); border: 3px solid var(--ink); box-shadow: 5px 5px 0 var(--mint); font: 900 15px/1.2 var(--ui-sans); text-decoration: none; transition: transform .14s steps(2, end), box-shadow .14s steps(2, end), background-color .14s ease; }
+.tennis-button { display: inline-flex; align-items: center; justify-content: center; min-height: 56px; padding: 15px 21px; color: #fff8e8; background: #10151a; border: 3px solid #10151a; box-shadow: 5px 5px 0 var(--mint); font: 900 15px/1.2 var(--ui-sans); text-decoration: none; transition: transform .14s steps(2, end), box-shadow .14s steps(2, end), background-color .14s ease; }
 .tennis-button::before { margin-right: 8px; content: ">"; font-family: "Courier New", monospace; }
-.tennis-button:hover { color: var(--ink); background: var(--orange-light); box-shadow: 3px 3px 0 var(--orange); transform: translate(2px, 2px); }
+.tennis-button:hover { color: #10151a; background: #ffd4b3; box-shadow: 3px 3px 0 var(--orange); transform: translate(2px, 2px); }
 .tennis-button:active { box-shadow: none; transform: translate(5px, 5px); }
-.tennis-button--primary { color: var(--ink); background: var(--tennis-lime); box-shadow: 6px 6px 0 var(--orange); }
-.tennis-button--light { color: var(--ink); background: var(--orange-light); border-color: var(--paper-light); box-shadow: 5px 5px 0 #050713; }
+.tennis-button--primary { color: #10151a; background: var(--tennis-lime); border-color: #10151a; box-shadow: 6px 6px 0 var(--orange); }
+.tennis-button--primary:hover { color: #10151a; background: #d9ff85; }
+.tennis-button--light { color: #10151a; background: #fff8e8; border-color: #10151a; box-shadow: 5px 5px 0 #050713; }
 
 .tennis-install-note { display: grid; grid-template-columns: auto auto 1fr; gap: 12px; align-items: center; margin-top: 20px; padding: 13px 15px; background: color-mix(in srgb, var(--mint) 18%, transparent); border-left: 6px solid var(--mint); }
 .tennis-install-note span,
@@ -477,7 +478,7 @@ html[data-resolved-theme="dark"] .tennis-site {
 @media (max-width: 560px) {
   .tennis-brand strong { font-size: 13px; }
   .tennis-brand small { font-size: 9px; }
-  .tennis-theme-panel { top: 70px; right: 10px; width: calc(100vw - 20px); padding: 15px; box-shadow: 7px 7px 0 var(--orange); }
+  .tennis-theme-panel { top: 70px; right: 10px; left: 10px; width: auto; padding: 15px; box-shadow: 7px 7px 0 var(--orange); }
   .tennis-theme-segments { grid-template-columns: 1fr; }
   .tennis-hero,
   .tennis-feature-section,

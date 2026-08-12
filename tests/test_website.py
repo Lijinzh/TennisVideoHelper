@@ -156,6 +156,11 @@ def test_feedback_window_builds_a_safe_prefilled_github_issue() -> None:
     assert "`- 显卡：${gpu}`" in script
     assert "navigator.clipboard.writeText(prepared.body)" in script
     assert ".tennis-feedback-dialog::backdrop" in css
+    assert ".tennis-button--primary { color: #10151a" in css
+    assert ".tennis-button { display: inline-flex" in css
+    assert "color: #fff8e8; background: #10151a" in css
+    assert ".tennis-button:hover { color: #10151a" in css
+    assert ".tennis-button--light { color: #10151a" in css
 
 
 def test_public_download_copy_is_current() -> None:
