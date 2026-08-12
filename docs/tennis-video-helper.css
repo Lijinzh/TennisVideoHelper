@@ -4,6 +4,89 @@
   --tennis-pink: #f24aa7;
   --tennis-dark: #090d12;
   --tennis-panel: #151a20;
+  --theme-accent: #ed7a3a;
+  --theme-secondary: #73cfc0;
+  --theme-deep: #292756;
+  --theme-highlight: #b8ff39;
+  --theme-page: #f4ead4;
+  --theme-surface: #fff8e8;
+  --theme-surface-soft: #f1e4cc;
+  --theme-text: #292756;
+  --theme-text-soft: #77728d;
+  --theme-border: #292756;
+  --theme-inverse: #fff8e8;
+  --theme-section-dark: #151a20;
+  --theme-section-text: #fff8e8;
+  --theme-section-muted: #c8eee3;
+  --theme-grid: rgba(41, 39, 86, .045);
+  --theme-panel-shadow: rgba(41, 39, 86, .18);
+  --paper: var(--theme-page);
+  --paper-light: var(--theme-surface);
+  --ink: var(--theme-text);
+  --ink-2: color-mix(in srgb, var(--theme-text) 78%, var(--theme-secondary));
+  --muted: var(--theme-text-soft);
+  --mint: var(--theme-secondary);
+  --mint-light: color-mix(in srgb, var(--theme-secondary) 30%, var(--theme-surface));
+  --orange: var(--theme-accent);
+  --orange-light: color-mix(in srgb, var(--theme-accent) 52%, var(--theme-surface));
+  --line: color-mix(in srgb, var(--theme-border) 22%, transparent);
+  --shadow: var(--theme-deep);
+  transition: color .24s ease, background-color .24s ease;
+}
+
+html[data-site-palette="default"] .tennis-site { --theme-accent: #ed7a3a; --theme-secondary: #73cfc0; --theme-deep: #292756; --theme-highlight: #b8ff39; }
+html[data-site-palette="loess"] .tennis-site { --theme-accent: #d9772c; --theme-secondary: #8eab54; --theme-deep: #503229; --theme-highlight: #f1c35a; }
+html[data-site-palette="clay"] .tennis-site { --theme-accent: #e66c36; --theme-secondary: #4da680; --theme-deep: #163f32; --theme-highlight: #f1b657; }
+html[data-site-palette="grass"] .tennis-site { --theme-accent: #7ea73f; --theme-secondary: #64b58d; --theme-deep: #15392c; --theme-highlight: #c7e56a; }
+html[data-site-palette="night"] .tennis-site { --theme-accent: #5575ff; --theme-secondary: #4fd8ff; --theme-deep: #070e3b; --theme-highlight: #ff5ebd; }
+html[data-site-palette="australia"] .tennis-site { --theme-accent: #1589dc; --theme-secondary: #55cedc; --theme-deep: #063d78; --theme-highlight: #ffcc5c; }
+html[data-site-palette="shanghai"] .tennis-site { --theme-accent: #1687b0; --theme-secondary: #41cdbb; --theme-deep: #063c55; --theme-highlight: #ffd05f; }
+html[data-site-palette="beijing"] .tennis-site { --theme-accent: #d64a36; --theme-secondary: #9b7bc6; --theme-deep: #4d1d3f; --theme-highlight: #ffb34f; }
+html[data-site-palette="madrid"] .tennis-site { --theme-accent: #df6732; --theme-secondary: #a9937f; --theme-deep: #28242a; --theme-highlight: #ffc04f; }
+html[data-site-palette="rio"] .tennis-site { --theme-accent: #d86032; --theme-secondary: #50aa6d; --theme-deep: #173f2a; --theme-highlight: #b9ef67; }
+html[data-site-palette="desert-hard"] .tennis-site { --theme-accent: #d98634; --theme-secondary: #4a9ba5; --theme-deep: #294d54; --theme-highlight: #ffd05d; }
+html[data-site-palette="dunhuang"] .tennis-site { --theme-accent: #c96831; --theme-secondary: #aa7c55; --theme-deep: #5a2733; --theme-highlight: #ffd16f; }
+html[data-site-palette="himalaya"] .tennis-site { --theme-accent: #397ca7; --theme-secondary: #79bac7; --theme-deep: #23455e; --theme-highlight: #c8f1ff; }
+html[data-site-palette="larung"] .tennis-site { --theme-accent: #b94d3d; --theme-secondary: #b98c65; --theme-deep: #571f25; --theme-highlight: #f1b06a; }
+html[data-site-palette="hyrule"] .tennis-site { --theme-accent: #268b69; --theme-secondary: #39b8b3; --theme-deep: #154b54; --theme-highlight: #8cffc9; }
+html[data-site-palette="ashina"] .tennis-site { --theme-accent: #b94136; --theme-secondary: #77707a; --theme-deep: #201d28; --theme-highlight: #eaa34f; }
+
+html[data-resolved-theme="light"] .tennis-site {
+  --theme-page: color-mix(in srgb, var(--theme-accent) 7%, #f7f0df);
+  --theme-surface: color-mix(in srgb, var(--theme-secondary) 6%, #fffaf0);
+  --theme-surface-soft: color-mix(in srgb, var(--theme-secondary) 13%, #f6ecd9);
+  --theme-text: color-mix(in srgb, var(--theme-deep) 88%, #16131b);
+  --theme-text-soft: color-mix(in srgb, var(--theme-deep) 60%, #817b81);
+  --theme-border: var(--theme-deep);
+  --theme-inverse: #fffaf0;
+  --theme-section-dark: color-mix(in srgb, var(--theme-deep) 92%, #080a0c);
+  --theme-section-text: #fff8e8;
+  --theme-section-muted: color-mix(in srgb, var(--theme-secondary) 38%, #e5f2e9);
+  --theme-grid: color-mix(in srgb, var(--theme-deep) 5%, transparent);
+  --theme-panel-shadow: color-mix(in srgb, var(--theme-deep) 18%, transparent);
+}
+
+html[data-resolved-theme="dark"] .tennis-site {
+  --theme-page: color-mix(in srgb, var(--theme-deep) 76%, #0b1015);
+  --theme-surface: color-mix(in srgb, var(--theme-deep) 57%, #1d242b);
+  --theme-surface-soft: color-mix(in srgb, var(--theme-secondary) 12%, #202830);
+  --theme-text: #f5eddd;
+  --theme-text-soft: color-mix(in srgb, var(--theme-secondary) 22%, #c8c1ba);
+  --theme-border: color-mix(in srgb, var(--theme-secondary) 32%, #e8dfd2);
+  --theme-inverse: #10151a;
+  --theme-section-dark: color-mix(in srgb, var(--theme-deep) 78%, #070a0d);
+  --theme-section-text: #fff8e8;
+  --theme-section-muted: color-mix(in srgb, var(--theme-secondary) 42%, #d4d9d5);
+  --theme-grid: color-mix(in srgb, var(--theme-secondary) 8%, transparent);
+  --theme-panel-shadow: rgba(0, 0, 0, .42);
+}
+
+.tennis-site {
+  background:
+    linear-gradient(var(--theme-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--theme-grid) 1px, transparent 1px),
+    var(--paper);
+  background-size: 24px 24px;
 }
 
 .tennis-site::before { opacity: .07; }
@@ -14,7 +97,7 @@
 .tennis-site h1,
 .tennis-site h2 { font-family: var(--display-serif); letter-spacing: -.055em; }
 
-.tennis-header { background: rgba(255, 248, 232, .96); }
+.tennis-header { background: color-mix(in srgb, var(--paper-light) 92%, transparent); }
 .tennis-brand { gap: 12px; }
 .tennis-brand__icon { display: grid; place-items: center; width: 48px; height: 48px; background: var(--tennis-dark); border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--orange); }
 .tennis-brand__icon img { width: 40px; height: 40px; image-rendering: pixelated; }
@@ -25,11 +108,32 @@
 .tennis-back-link { display: grid; justify-items: end; text-decoration: none; }
 .tennis-back-link span { color: var(--orange); font: 900 10px/1.2 "Courier New", monospace; letter-spacing: .1em; }
 .tennis-back-link strong { font-size: 14px; }
+.tennis-header-tools { display: flex; justify-self: end; gap: 18px; align-items: center; }
+.tennis-theme-picker { position: relative; }
+.tennis-theme-trigger { display: inline-flex; gap: 8px; align-items: center; min-height: 42px; padding: 9px 12px; color: var(--paper-light); background: var(--ink); border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--orange); font: 900 12px/1 var(--ui-sans); cursor: pointer; }
+.tennis-theme-trigger span { color: var(--theme-highlight); font: 900 19px/1 "Courier New", monospace; }
+.tennis-theme-trigger[aria-expanded="true"] { color: var(--ink); background: var(--theme-highlight); }
+.tennis-theme-panel { position: absolute; top: calc(100% + 14px); right: 0; z-index: 30; width: min(420px, calc(100vw - 28px)); padding: 18px; color: var(--ink); background: var(--paper-light); border: 4px solid var(--ink); box-shadow: 10px 10px 0 var(--orange); }
+.tennis-theme-panel[hidden] { display: none; }
+.tennis-theme-panel header { display: flex; justify-content: space-between; gap: 20px; align-items: start; padding-bottom: 14px; border-bottom: 3px solid var(--ink); }
+.tennis-theme-panel header div { display: grid; gap: 5px; }
+.tennis-theme-panel header span { color: var(--orange); font: 900 10px/1 "Courier New", monospace; letter-spacing: .12em; }
+.tennis-theme-panel header strong { font-size: 22px; }
+.tennis-theme-panel header button { width: 36px; height: 36px; padding: 0; color: var(--paper-light); background: var(--ink); border: 0; box-shadow: 3px 3px 0 var(--orange); font: 900 24px/1 "Courier New", monospace; cursor: pointer; }
+.tennis-theme-panel fieldset { margin: 16px 0 0; padding: 0; border: 0; }
+.tennis-theme-panel legend,
+.tennis-theme-palette > span { margin-bottom: 8px; font-size: 12px; font-weight: 900; }
+.tennis-theme-segments { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.tennis-theme-segments button { min-height: 42px; padding: 9px 8px; color: var(--ink); background: var(--theme-surface-soft); border: 2px solid var(--ink); font: 900 12px/1.2 var(--ui-sans); cursor: pointer; }
+.tennis-theme-segments button[aria-pressed="true"] { color: var(--theme-inverse); background: var(--orange); box-shadow: 3px 3px 0 var(--ink); }
+.tennis-theme-palette { display: grid; margin-top: 16px; }
+.tennis-theme-palette select { width: 100%; min-height: 46px; padding: 10px 12px; color: var(--ink); background: var(--theme-surface); border: 3px solid var(--ink); border-radius: 0; box-shadow: 4px 4px 0 var(--mint); font: 800 13px/1.3 var(--ui-sans); }
+.tennis-theme-panel [data-theme-status] { margin: 16px 0 0; padding: 11px 12px; color: var(--ink-2); background: var(--theme-surface-soft); border-left: 5px solid var(--orange); font-size: 12px; font-weight: 800; line-height: 1.55; }
 
 .tennis-kicker { margin-bottom: 18px; color: var(--ink-2); font: 900 13px/1.4 "Courier New", monospace; letter-spacing: .1em; }
 .tennis-kicker span { display: inline-block; margin-right: 10px; padding: 6px 9px; color: var(--paper-light); background: var(--ink); box-shadow: 3px 3px 0 var(--orange); }
 
-.tennis-hero { display: grid; grid-template-columns: minmax(480px, 1fr) minmax(0, 1fr); gap: clamp(38px, 4vw, 58px); align-items: center; min-height: calc(100vh - 112px); padding: clamp(42px, 5vw, 62px) max(22px, calc((100vw - var(--max)) / 2)); background: linear-gradient(90deg, rgba(255, 248, 232, .96), rgba(244, 234, 212, .76)), repeating-linear-gradient(0deg, transparent 0 23px, rgba(41, 39, 86, .08) 23px 24px); border-bottom: 4px solid var(--ink); }
+.tennis-hero { display: grid; grid-template-columns: minmax(480px, 1fr) minmax(0, 1fr); gap: clamp(38px, 4vw, 58px); align-items: center; min-height: calc(100vh - 112px); padding: clamp(42px, 5vw, 62px) max(22px, calc((100vw - var(--max)) / 2)); background: linear-gradient(90deg, color-mix(in srgb, var(--paper-light) 96%, transparent), color-mix(in srgb, var(--paper) 76%, transparent)), repeating-linear-gradient(0deg, transparent 0 23px, var(--theme-grid) 23px 24px); border-bottom: 4px solid var(--ink); }
 .tennis-hero h1 { max-width: none; margin-bottom: 22px; font-size: clamp(60px, 5.6vw, 84px); line-height: .93; }
 .tennis-hero h1 em { color: var(--orange); font-style: normal; text-shadow: 4px 4px 0 var(--mint); }
 .tennis-hero__lead { max-width: 650px; color: var(--muted); font-size: 18px; font-weight: 650; line-height: 1.75; }
@@ -42,7 +146,7 @@
 .tennis-button--primary { color: var(--ink); background: var(--tennis-lime); box-shadow: 6px 6px 0 var(--orange); }
 .tennis-button--light { color: var(--ink); background: var(--orange-light); border-color: var(--paper-light); box-shadow: 5px 5px 0 #050713; }
 
-.tennis-install-note { display: grid; grid-template-columns: auto auto 1fr; gap: 12px; align-items: center; margin-top: 20px; padding: 13px 15px; background: rgba(115, 207, 192, .18); border-left: 6px solid var(--mint); }
+.tennis-install-note { display: grid; grid-template-columns: auto auto 1fr; gap: 12px; align-items: center; margin-top: 20px; padding: 13px 15px; background: color-mix(in srgb, var(--mint) 18%, transparent); border-left: 6px solid var(--mint); }
 .tennis-install-note span,
 .tennis-install-note strong { font: 900 13px/1.2 "Courier New", monospace; }
 .tennis-install-note span { color: var(--orange); }
@@ -50,7 +154,7 @@
 .tennis-private-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; font-weight: 650; line-height: 1.65; }
 
 .tennis-hero__screen { margin: 0; padding: 10px; background: var(--tennis-dark); border: 4px solid var(--ink); box-shadow: 11px 11px 0 var(--orange); }
-.tennis-window-bar { display: flex; align-items: center; gap: 6px; padding: 9px 11px; color: var(--mint-light); background: #11152f; border-bottom: 3px solid var(--mint); font: 800 10px/1 "Courier New", monospace; letter-spacing: .08em; }
+.tennis-window-bar { display: flex; align-items: center; gap: 6px; padding: 9px 11px; color: var(--theme-section-muted); background: var(--theme-section-dark); border-bottom: 3px solid var(--mint); font: 800 10px/1 "Courier New", monospace; letter-spacing: .08em; }
 .tennis-window-bar span { margin-right: auto; }
 .tennis-window-bar i { width: 8px; height: 8px; background: var(--orange); }
 .tennis-window-bar i:nth-child(3) { background: var(--orange-light); }
@@ -67,29 +171,29 @@
 .tennis-signal-strip small { display: block; }
 .tennis-signal-strip small { color: var(--mint-light); font-size: 12px; }
 
-.tennis-court-section { overflow: hidden; padding: clamp(82px, 9vw, 124px) 0; color: #fff5db; background: #7b3f20; border-top: 6px solid #e4a340; border-bottom: 6px solid var(--ink); }
+.tennis-court-section { overflow: hidden; padding: clamp(82px, 9vw, 124px) 0; color: var(--theme-section-text); background: linear-gradient(135deg, color-mix(in srgb, var(--theme-deep) 88%, #3a1f18), color-mix(in srgb, var(--theme-accent) 54%, var(--theme-deep))); border-top: 6px solid var(--theme-highlight); border-bottom: 6px solid var(--ink); }
 .tennis-court-heading { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, .72fr); gap: clamp(32px, 6vw, 86px); align-items: end; max-width: var(--max); margin: 0 auto 34px; padding: 0 22px; }
-.tennis-court-heading h2 { margin-bottom: 0; color: #fff1ca; font-size: clamp(48px, 5.2vw, 74px); line-height: .98; text-shadow: 4px 4px 0 #3d241d; }
-.tennis-court-heading > p { margin: 0; color: #ffe5b2; font-size: 17px; font-weight: 650; line-height: 1.85; }
-.tennis-court-section .tennis-kicker { color: #ffe5b2; }
-.tennis-court-section .tennis-kicker span { color: #3d241d; background: #f2ba52; box-shadow-color: #d64d2f; }
+.tennis-court-heading h2 { margin-bottom: 0; color: var(--theme-section-text); font-size: clamp(48px, 5.2vw, 74px); line-height: .98; text-shadow: 4px 4px 0 var(--theme-deep); }
+.tennis-court-heading > p { margin: 0; color: var(--theme-section-muted); font-size: 17px; font-weight: 650; line-height: 1.85; }
+.tennis-court-section .tennis-kicker { color: var(--theme-section-muted); }
+.tennis-court-section .tennis-kicker span { color: var(--theme-deep); background: var(--theme-highlight); box-shadow-color: var(--theme-accent); }
 .tennis-court-toolbar { display: flex; justify-content: space-between; gap: 24px; max-width: var(--max); margin: 0 auto 24px; padding: 0 22px; }
 .tennis-court-tabs { display: flex; flex-wrap: wrap; gap: 9px; }
 .tennis-court-tabs button,
-.tennis-court-arrows button { min-height: 44px; color: #fff1ca; background: #3d241d; border: 3px solid #f2ba52; box-shadow: 3px 3px 0 #251812; font: 900 12px/1.2 var(--ui-sans); cursor: pointer; }
+.tennis-court-arrows button { min-height: 44px; color: var(--theme-section-text); background: var(--theme-deep); border: 3px solid var(--theme-highlight); box-shadow: 3px 3px 0 var(--theme-section-dark); font: 900 12px/1.2 var(--ui-sans); cursor: pointer; }
 .tennis-court-tabs button { padding: 10px 13px; }
 .tennis-court-tabs button:hover,
 .tennis-court-tabs button[aria-selected="true"],
-.tennis-court-arrows button:hover { color: #3d241d; background: #f8c761; }
+.tennis-court-arrows button:hover { color: var(--theme-deep); background: var(--theme-highlight); }
 .tennis-court-tabs button:focus-visible,
 .tennis-court-arrows button:focus-visible,
 .tennis-court-viewport:focus-visible { outline: 4px solid var(--tennis-cyan); outline-offset: 4px; }
 .tennis-court-arrows { display: flex; flex: 0 0 auto; gap: 9px; align-items: center; }
 .tennis-court-arrows button { width: 46px; padding: 0; font: 900 24px/1 "Courier New", monospace; }
-.tennis-court-arrows span { min-width: 68px; color: #fff1ca; text-align: center; font: 900 12px/1 "Courier New", monospace; }
-.tennis-court-viewport { overflow-x: auto; max-width: 100%; padding: 8px max(22px, calc((100vw - var(--max)) / 2)) 24px; scroll-behavior: smooth; scroll-padding-inline: max(22px, calc((100vw - var(--max)) / 2)); scroll-snap-type: x mandatory; scrollbar-color: #f2ba52 #3d241d; scrollbar-width: thin; }
+.tennis-court-arrows span { min-width: 68px; color: var(--theme-section-text); text-align: center; font: 900 12px/1 "Courier New", monospace; }
+.tennis-court-viewport { overflow-x: auto; max-width: 100%; padding: 8px max(22px, calc((100vw - var(--max)) / 2)) 24px; scroll-behavior: smooth; scroll-padding-inline: max(22px, calc((100vw - var(--max)) / 2)); scroll-snap-type: x mandatory; scrollbar-color: var(--theme-highlight) var(--theme-deep); scrollbar-width: thin; }
 .tennis-court-track { display: flex; gap: clamp(22px, 3vw, 42px); width: max-content; }
-.tennis-court-slide { --court-accent: #f2ba52; --court-shadow: #3d241d; --court-panel: #251812; display: grid; grid-template-columns: minmax(260px, .48fr) minmax(560px, 1.2fr); gap: clamp(26px, 4vw, 58px); align-items: center; width: min(1180px, calc(100vw - 88px)); min-height: 600px; padding: clamp(26px, 4vw, 48px); background: rgba(45, 25, 18, .42); border: 3px solid rgba(255, 229, 178, .36); scroll-snap-align: center; scroll-snap-stop: always; }
+.tennis-court-slide { --court-accent: #f2ba52; --court-shadow: #3d241d; --court-panel: #251812; display: grid; grid-template-columns: minmax(260px, .48fr) minmax(560px, 1.2fr); gap: clamp(26px, 4vw, 58px); align-items: center; width: min(1180px, calc(100vw - 88px)); min-height: 600px; padding: clamp(26px, 4vw, 48px); background: color-mix(in srgb, var(--theme-section-dark) 54%, transparent); border: 3px solid color-mix(in srgb, var(--theme-section-muted) 36%, transparent); scroll-snap-align: center; scroll-snap-stop: always; }
 .tennis-court-slide[data-court-theme="clay"] { --court-accent: #e66c36; --court-shadow: #163f32; --court-panel: #102e26; }
 .tennis-court-slide[data-court-theme="grass"] { --court-accent: #b7d45a; --court-shadow: #15392c; --court-panel: #0c2b20; }
 .tennis-court-slide[data-court-theme="night"] { --court-accent: #4fd8ff; --court-shadow: #070e3b; --court-panel: #07163d; }
@@ -107,17 +211,17 @@
 .tennis-court-slide__copy { align-self: center; }
 .tennis-court-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 18px; }
 .tennis-court-number { display: inline-block; padding: 7px 9px; color: var(--court-shadow); background: var(--court-accent); box-shadow: 4px 4px 0 var(--court-shadow); font: 900 11px/1 "Courier New", monospace; letter-spacing: .1em; }
-.tennis-court-kind { display: inline-block; padding: 7px 9px; color: #fff1ca; background: transparent; border: 2px solid var(--court-accent); font: 900 11px/1 var(--ui-sans); letter-spacing: .08em; }
+.tennis-court-kind { display: inline-block; padding: 7px 9px; color: var(--theme-section-text); background: transparent; border: 2px solid var(--court-accent); font: 900 11px/1 var(--ui-sans); letter-spacing: .08em; }
 .tennis-court-kind.is-concept { border-style: dashed; }
-.tennis-court-slide h3 { margin-bottom: 18px; color: #fff1ca; font-family: var(--display-serif); font-size: clamp(38px, 4.2vw, 60px); line-height: .98; letter-spacing: -.045em; }
-.tennis-court-slide__copy p { color: #ffe5b2; font-size: 16px; font-weight: 650; line-height: 1.82; }
-.tennis-court-slide__copy small { display: block; padding-top: 15px; color: var(--court-accent); border-top: 2px dashed rgba(255, 229, 178, .45); font: 900 11px/1.5 "Courier New", monospace; }
+.tennis-court-slide h3 { margin-bottom: 18px; color: var(--theme-section-text); font-family: var(--display-serif); font-size: clamp(38px, 4.2vw, 60px); line-height: .98; letter-spacing: -.045em; }
+.tennis-court-slide__copy p { color: var(--theme-section-muted); font-size: 16px; font-weight: 650; line-height: 1.82; }
+.tennis-court-slide__copy small { display: block; padding-top: 15px; color: var(--court-accent); border-top: 2px dashed color-mix(in srgb, var(--theme-section-muted) 45%, transparent); font: 900 11px/1.5 "Courier New", monospace; }
 .tennis-court-card { margin: 0; padding: 12px; background: var(--court-panel); border: 4px solid var(--court-accent); box-shadow: 11px 11px 0 var(--court-shadow); }
-.tennis-court-card .tennis-window-bar { color: #ffe5b2; background: var(--court-shadow); border-bottom-color: var(--court-accent); }
+.tennis-court-card .tennis-window-bar { color: var(--theme-section-muted); background: var(--court-shadow); border-bottom-color: var(--court-accent); }
 .tennis-court-card img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; background: #b66c2d; image-rendering: pixelated; }
-.tennis-court-card figcaption { padding: 12px 7px 3px; color: #ffe5b2; font: 800 11px/1.5 "Courier New", monospace; letter-spacing: .05em; }
+.tennis-court-card figcaption { padding: 12px 7px 3px; color: var(--theme-section-muted); font: 800 11px/1.5 "Courier New", monospace; letter-spacing: .05em; }
 .tennis-court-card figcaption span { color: var(--court-accent); }
-.tennis-court-scroll-hint { margin: 4px auto 0; padding: 0 22px; color: #f8c761; text-align: center; font: 900 11px/1.5 "Courier New", monospace; letter-spacing: .06em; }
+.tennis-court-scroll-hint { margin: 4px auto 0; padding: 0 22px; color: var(--theme-highlight); text-align: center; font: 900 11px/1.5 "Courier New", monospace; letter-spacing: .06em; }
 
 .tennis-intro { display: grid; grid-template-columns: 100px minmax(0, 1.25fr) minmax(280px, .75fr); gap: clamp(30px, 5vw, 72px); align-items: start; padding: clamp(80px, 9vw, 126px) max(22px, calc((100vw - var(--max)) / 2)); }
 .tennis-intro__number { padding-top: 9px; color: var(--orange); font: 900 11px/1 "Courier New", monospace; letter-spacing: .12em; }
@@ -125,23 +229,24 @@
 .tennis-intro > p { margin-top: 36px; color: var(--muted); font-size: 17px; font-weight: 650; line-height: 1.9; }
 
 .tennis-feature-section,
+.tennis-architecture-section,
 .tennis-progress-section,
 .tennis-faq { padding: clamp(76px, 9vw, 122px) max(22px, calc((100vw - var(--max)) / 2)); }
-.tennis-feature-section { background: rgba(255, 248, 232, .72); border-top: 3px solid var(--ink); border-bottom: 3px solid var(--ink); }
+.tennis-feature-section { background: color-mix(in srgb, var(--paper-light) 72%, transparent); border-top: 3px solid var(--ink); border-bottom: 3px solid var(--ink); }
 .tennis-section-heading { max-width: 820px; margin-bottom: 52px; }
 .tennis-section-heading h2 { margin-bottom: 0; font-size: clamp(46px, 5.4vw, 74px); line-height: 1; }
 .tennis-section-heading > p:last-child { color: var(--muted); font-weight: 650; line-height: 1.8; }
 .tennis-section-heading--split { display: grid; grid-template-columns: 1.2fr .8fr; gap: 60px; max-width: none; align-items: end; }
 
 .tennis-feature-flow { display: grid; gap: 18px; }
-.tennis-feature-row { display: grid; grid-template-columns: 118px minmax(0, 1fr) 220px; gap: 34px; align-items: center; min-height: 210px; padding: 30px 34px; background: var(--paper-light); border: 3px solid var(--ink); box-shadow: 7px 7px 0 rgba(41, 39, 86, .18); }
+.tennis-feature-row { display: grid; grid-template-columns: 118px minmax(0, 1fr) 220px; gap: 34px; align-items: center; min-height: 210px; padding: 30px 34px; background: var(--paper-light); border: 3px solid var(--ink); box-shadow: 7px 7px 0 var(--theme-panel-shadow); }
 .tennis-feature-row__index { color: var(--orange); font: 900 12px/1 "Courier New", monospace; letter-spacing: .12em; }
 .tennis-feature-row h3 { margin-bottom: 10px; font-size: 28px; }
 .tennis-feature-row p { margin: 0; color: var(--muted); font-weight: 650; line-height: 1.8; }
-.tennis-feature-row--dark { color: var(--paper-light); background: var(--ink); box-shadow: 8px 8px 0 var(--orange); }
-.tennis-feature-row--dark p { color: var(--mint-light); }
+.tennis-feature-row--dark { color: var(--theme-section-text); background: var(--theme-section-dark); box-shadow: 8px 8px 0 var(--orange); }
+.tennis-feature-row--dark p { color: var(--theme-section-muted); }
 .tennis-feature-row--dark .tennis-feature-row__index { color: var(--orange-light); }
-.tennis-feature-row--accent { background: var(--mint-light); box-shadow: 8px 8px 0 var(--orange); }
+.tennis-feature-row--accent { background: var(--theme-surface-soft); box-shadow: 8px 8px 0 var(--orange); }
 
 .tennis-pixel-diagram { display: flex; align-items: end; gap: 8px; height: 94px; padding: 18px; background: var(--ink); border: 3px solid var(--ink-2); }
 .tennis-pixel-diagram i { width: 12px; background: var(--mint); box-shadow: 0 -4px 0 var(--orange); }
@@ -164,18 +269,69 @@
 .tennis-export-icon span { color: var(--tennis-lime); font: 900 46px/1 "Courier New", monospace; }
 .tennis-export-icon i { position: absolute; right: -10px; bottom: -12px; width: 32px; height: 24px; background: var(--tennis-pink); }
 
-.tennis-settings-section { display: grid; grid-template-columns: .72fr 1.28fr; gap: clamp(44px, 6vw, 82px); align-items: center; padding: clamp(82px, 9vw, 124px) max(22px, calc((100vw - var(--max)) / 2)); color: var(--paper-light); background: var(--ink); border-bottom: 6px solid var(--orange); }
+.tennis-architecture-section { color: var(--theme-section-text); background: var(--theme-section-dark); border-bottom: 6px solid var(--theme-highlight); }
+.tennis-architecture-section .tennis-section-heading > p:last-child { color: var(--theme-section-muted); }
+.tennis-architecture-section .tennis-kicker { color: var(--theme-section-muted); }
+.tennis-architecture-section .tennis-kicker span { color: var(--theme-section-dark); background: var(--theme-highlight); box-shadow-color: var(--orange); }
+.tennis-architecture-map { position: relative; display: grid; justify-items: center; gap: 20px; max-width: 1080px; margin: 0 auto; padding: clamp(26px, 4vw, 46px); background-image: linear-gradient(rgba(85, 216, 242, .08) 1px, transparent 1px), linear-gradient(90deg, rgba(85, 216, 242, .08) 1px, transparent 1px); background-size: 20px 20px; border: 3px solid color-mix(in srgb, var(--theme-section-muted) 42%, transparent); box-shadow: 10px 10px 0 color-mix(in srgb, var(--orange) 78%, #000); }
+.tennis-architecture-map::before { position: absolute; inset: 12px; pointer-events: none; content: ""; border: 1px dashed color-mix(in srgb, var(--theme-section-muted) 26%, transparent); }
+.tennis-architecture-source { position: relative; z-index: 1; display: grid; min-width: min(420px, 90%); padding: 20px 24px; text-align: center; background: var(--theme-highlight); border: 4px solid var(--theme-section-text); box-shadow: 6px 6px 0 var(--orange); }
+.tennis-architecture-source span,
+.tennis-architecture-node > span,
+.tennis-contributor-strip > div > span { font: 900 11px/1.2 "Courier New", monospace; letter-spacing: .12em; }
+.tennis-architecture-source span { color: var(--theme-section-dark); }
+.tennis-architecture-source strong { margin: 6px 0; color: var(--theme-section-dark); font-size: 23px; }
+.tennis-architecture-source small { color: color-mix(in srgb, var(--theme-section-dark) 76%, transparent); font-weight: 800; }
+.tennis-architecture-source::after { position: absolute; bottom: -26px; left: 50%; width: 4px; height: 22px; content: ""; background: var(--tennis-cyan); transform: translateX(-50%); }
+.tennis-architecture-branches { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(22px, 4vw, 54px); width: 100%; margin-top: 8px; }
+.tennis-architecture-node { position: relative; z-index: 1; display: grid; gap: 9px; width: 100%; min-height: 184px; padding: 24px; color: var(--theme-section-text); text-align: left; background: color-mix(in srgb, var(--theme-section-dark) 72%, var(--theme-deep)); border: 3px solid color-mix(in srgb, var(--theme-section-muted) 58%, transparent); box-shadow: 6px 6px 0 rgba(0, 0, 0, .35); font-family: var(--ui-sans); cursor: pointer; transition: transform .16s steps(2, end), border-color .16s ease, box-shadow .16s ease; }
+.tennis-architecture-node:hover,
+.tennis-architecture-node:focus-visible { border-color: var(--theme-highlight); outline: none; transform: translate(-2px, -2px); }
+.tennis-architecture-node.is-active { border-color: var(--theme-highlight); box-shadow: 7px 7px 0 var(--orange); }
+.tennis-architecture-node > span { color: var(--theme-highlight); }
+.tennis-architecture-node strong { font-size: 23px; line-height: 1.2; }
+.tennis-architecture-node small { color: var(--theme-section-muted); font-size: 14px; font-weight: 650; line-height: 1.65; }
+.tennis-architecture-node code { align-self: end; justify-self: start; padding: 6px 8px; color: var(--tennis-cyan); background: rgba(0, 0, 0, .26); font: 800 11px/1.4 "Courier New", monospace; overflow-wrap: anywhere; }
+.tennis-architecture-branches .tennis-architecture-node::before { position: absolute; top: -31px; width: calc(50% + 29px); height: 28px; content: ""; border-top: 4px solid var(--tennis-cyan); }
+.tennis-architecture-branches .tennis-architecture-node:first-child::before { right: -29px; border-left: 4px solid var(--tennis-cyan); }
+.tennis-architecture-branches .tennis-architecture-node:last-child::before { left: -29px; border-right: 4px solid var(--tennis-cyan); }
+.tennis-architecture-merge { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: center; width: 86%; color: var(--theme-section-muted); font: 900 11px/1 "Courier New", monospace; letter-spacing: .08em; }
+.tennis-architecture-merge i { height: 4px; background: repeating-linear-gradient(90deg, var(--tennis-cyan) 0 12px, transparent 12px 20px); }
+.tennis-architecture-pipeline { display: grid; justify-items: center; gap: 12px; width: min(720px, 100%); }
+.tennis-architecture-node--wide { min-height: 154px; }
+.tennis-architecture-arrow { color: var(--theme-highlight); font: 900 28px/1 "Courier New", monospace; }
+.tennis-architecture-detail { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr); gap: clamp(28px, 5vw, 64px); max-width: 1080px; margin: 42px auto 0; padding: clamp(26px, 4vw, 42px); color: var(--ink); background: var(--paper-light); border: 4px solid var(--theme-highlight); box-shadow: 10px 10px 0 var(--orange); }
+.tennis-architecture-detail [data-architecture-index] { color: var(--orange); font: 900 12px/1 "Courier New", monospace; letter-spacing: .12em; }
+.tennis-architecture-detail h3 { margin: 12px 0 14px; font-size: clamp(28px, 3.2vw, 42px); line-height: 1.08; }
+.tennis-architecture-detail p { margin: 0; color: var(--muted); font-weight: 650; line-height: 1.82; }
+.tennis-architecture-detail dl { display: grid; gap: 0; margin: 0; border-top: 3px solid var(--ink); }
+.tennis-architecture-detail dl div { display: grid; grid-template-columns: 92px 1fr; gap: 14px; padding: 13px 0; border-bottom: 2px dashed var(--line); }
+.tennis-architecture-detail dt { color: var(--orange); font-weight: 900; }
+.tennis-architecture-detail dd { margin: 0; color: var(--ink-2); line-height: 1.55; overflow-wrap: anywhere; }
+.tennis-architecture-detail code { font: 800 12px/1.5 "Courier New", monospace; }
+.tennis-contributor-strip { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr); gap: 34px 54px; max-width: 1080px; margin: 36px auto 0; padding: clamp(28px, 4vw, 42px); color: var(--theme-section-text); background: color-mix(in srgb, var(--theme-deep) 76%, #070a0d); border: 3px solid var(--tennis-cyan); box-shadow: 9px 9px 0 color-mix(in srgb, var(--tennis-pink) 72%, #000); }
+.tennis-contributor-strip > div > span { color: var(--tennis-cyan); }
+.tennis-contributor-strip > div > strong { display: block; margin: 10px 0 12px; font-size: clamp(24px, 3vw, 36px); line-height: 1.15; }
+.tennis-contributor-strip p { margin: 0; color: var(--theme-section-muted); font-weight: 650; line-height: 1.75; }
+.tennis-contributor-strip ol { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.tennis-contributor-strip li { display: grid; grid-template-columns: 42px 1fr; gap: 12px; align-items: center; padding: 14px; background: rgba(0, 0, 0, .24); border-left: 4px solid var(--theme-highlight); }
+.tennis-contributor-strip li span { color: var(--theme-highlight); font: 900 12px/1 "Courier New", monospace; }
+.tennis-contributor-strip li code,
+.tennis-contributor-strip li strong { color: var(--theme-section-text); font: 800 13px/1.5 "Courier New", monospace; overflow-wrap: anywhere; }
+.tennis-contributor-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
+
+.tennis-settings-section { display: grid; grid-template-columns: .72fr 1.28fr; gap: clamp(44px, 6vw, 82px); align-items: center; padding: clamp(82px, 9vw, 124px) max(22px, calc((100vw - var(--max)) / 2)); color: var(--theme-section-text); background: var(--theme-section-dark); border-bottom: 6px solid var(--orange); }
 .tennis-settings-section h2 { font-size: clamp(46px, 5vw, 70px); line-height: 1; }
-.tennis-settings-section__copy > p:not(.tennis-kicker) { color: var(--mint-light); font-weight: 650; line-height: 1.85; }
-.tennis-settings-section .tennis-kicker { color: var(--mint-light); }
+.tennis-settings-section__copy > p:not(.tennis-kicker) { color: var(--theme-section-muted); font-weight: 650; line-height: 1.85; }
+.tennis-settings-section .tennis-kicker { color: var(--theme-section-muted); }
 .tennis-settings-section .tennis-kicker span { color: var(--ink); background: var(--mint); }
 .tennis-setting-list { margin: 34px 0 0; border-top: 2px solid var(--ink-2); }
 .tennis-setting-list div { display: flex; justify-content: space-between; gap: 20px; padding: 12px 0; border-bottom: 2px dashed var(--ink-2); }
 .tennis-setting-list dt { color: var(--orange-light); font-weight: 900; }
-.tennis-setting-list dd { margin: 0; color: var(--mint-light); text-align: right; }
-.tennis-settings-screen { margin: 0; padding: 12px; background: #080b10; border: 4px solid var(--mint); box-shadow: 10px 10px 0 var(--orange); }
+.tennis-setting-list dd { margin: 0; color: var(--theme-section-muted); text-align: right; }
+.tennis-settings-screen { margin: 0; padding: 12px; background: var(--theme-section-dark); border: 4px solid var(--mint); box-shadow: 10px 10px 0 var(--orange); }
 .tennis-settings-screen img { display: block; width: 100%; height: auto; }
-.tennis-settings-screen figcaption { padding: 12px 6px 2px; color: var(--mint-light); font: 800 10px/1.5 "Courier New", monospace; letter-spacing: .06em; }
+.tennis-settings-screen figcaption { padding: 12px 6px 2px; color: var(--theme-section-muted); font: 800 10px/1.5 "Courier New", monospace; letter-spacing: .06em; }
 
 .tennis-progress-section { background: var(--paper); }
 .tennis-timeline { position: relative; display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
@@ -185,32 +341,32 @@
 .tennis-timeline li.is-done::before { background: var(--mint); }
 .tennis-timeline li.is-current::before { background: var(--tennis-lime); box-shadow: 5px 5px 0 var(--orange); }
 .tennis-timeline li > span { color: var(--orange); font: 900 11px/1.2 "Courier New", monospace; letter-spacing: .08em; }
-.tennis-timeline li > div { padding: 24px 28px; background: var(--paper-light); border: 3px solid var(--ink); box-shadow: 6px 6px 0 rgba(41, 39, 86, .18); }
-.tennis-timeline li.is-current > div { color: var(--paper-light); background: var(--ink); box-shadow: 8px 8px 0 var(--orange); }
+.tennis-timeline li > div { padding: 24px 28px; background: var(--paper-light); border: 3px solid var(--ink); box-shadow: 6px 6px 0 var(--theme-panel-shadow); }
+.tennis-timeline li.is-current > div { color: var(--theme-section-text); background: var(--theme-section-dark); box-shadow: 8px 8px 0 var(--orange); }
 .tennis-timeline strong { font-size: 20px; }
 .tennis-timeline p { margin: 8px 0 0; color: var(--muted); line-height: 1.75; }
-.tennis-timeline li.is-current p { color: var(--mint-light); }
+.tennis-timeline li.is-current p { color: var(--theme-section-muted); }
 
-.tennis-install-section { display: grid; grid-template-columns: .85fr 1.15fr; gap: 54px 76px; padding: clamp(82px, 9vw, 124px) max(22px, calc((100vw - var(--max)) / 2)); color: var(--paper-light); background: var(--tennis-dark); border-top: 6px solid var(--tennis-lime); border-bottom: 6px solid var(--orange); }
+.tennis-install-section { display: grid; grid-template-columns: .85fr 1.15fr; gap: 54px 76px; padding: clamp(82px, 9vw, 124px) max(22px, calc((100vw - var(--max)) / 2)); color: var(--theme-section-text); background: var(--theme-section-dark); border-top: 6px solid var(--theme-highlight); border-bottom: 6px solid var(--orange); }
 .tennis-install-section h2 { font-size: clamp(48px, 5.4vw, 76px); line-height: .98; }
-.tennis-install-section__copy > p:not(.tennis-kicker) { color: var(--mint-light); font-weight: 650; line-height: 1.85; }
-.tennis-install-section .tennis-kicker { color: var(--mint-light); }
+.tennis-install-section__copy > p:not(.tennis-kicker) { color: var(--theme-section-muted); font-weight: 650; line-height: 1.85; }
+.tennis-install-section .tennis-kicker { color: var(--theme-section-muted); }
 .tennis-install-section .tennis-kicker span { color: var(--ink); background: var(--tennis-lime); box-shadow-color: var(--orange); }
 .tennis-install-actions { display: grid; gap: 16px; align-items: start; margin-top: 30px; }
 .tennis-text-link { color: var(--orange-light); font-weight: 900; text-underline-offset: 5px; }
 .tennis-install-steps { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
-.tennis-install-steps li { display: grid; grid-template-columns: 66px 1fr; gap: 20px; padding: 22px; background: #11152f; border: 3px solid var(--ink-2); box-shadow: 6px 6px 0 #050713; }
+.tennis-install-steps li { display: grid; grid-template-columns: 66px 1fr; gap: 20px; padding: 22px; background: color-mix(in srgb, var(--theme-section-dark) 80%, var(--theme-secondary)); border: 3px solid color-mix(in srgb, var(--theme-secondary) 28%, var(--theme-section-text)); box-shadow: 6px 6px 0 color-mix(in srgb, var(--theme-section-dark) 88%, #000); }
 .tennis-install-steps li > span { display: grid; place-items: center; width: 58px; height: 58px; color: var(--ink); background: var(--orange-light); border: 3px solid var(--paper-light); box-shadow: 3px 3px 0 var(--mint); font: 900 16px/1 "Courier New", monospace; }
-.tennis-install-steps strong { color: var(--paper-light); font-size: 18px; }
-.tennis-install-steps p { margin: 5px 0 0; color: var(--mint-light); line-height: 1.7; }
+.tennis-install-steps strong { color: var(--theme-section-text); font-size: 18px; }
+.tennis-install-steps p { margin: 5px 0 0; color: var(--theme-section-muted); line-height: 1.7; }
 .tennis-install-steps code { color: var(--orange-light); font-family: "Courier New", monospace; }
-.tennis-hash-panel { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto; gap: 14px 22px; padding: 24px; background: #11152f; border: 4px solid var(--mint); box-shadow: 9px 9px 0 var(--orange); }
+.tennis-hash-panel { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto; gap: 14px 22px; padding: 24px; background: color-mix(in srgb, var(--theme-section-dark) 80%, var(--theme-secondary)); border: 4px solid var(--mint); box-shadow: 9px 9px 0 var(--orange); }
 .tennis-hash-panel span { display: block; margin-bottom: 10px; color: var(--orange-light); font: 900 10px/1 "Courier New", monospace; letter-spacing: .12em; }
-.tennis-hash-panel strong { display: block; overflow-wrap: anywhere; color: #d9fff3; font: 800 13px/1.6 "Courier New", monospace; }
+.tennis-hash-panel strong { display: block; overflow-wrap: anywhere; color: var(--theme-section-text); font: 800 13px/1.6 "Courier New", monospace; }
 .tennis-hash-panel button { align-self: center; min-height: 46px; padding: 12px 18px; color: var(--ink); background: var(--tennis-lime); border: 3px solid var(--paper-light); box-shadow: 4px 4px 0 var(--orange); font-weight: 900; cursor: pointer; }
-.tennis-hash-panel p { grid-column: 1 / -1; margin: 0; color: var(--mint-light); font-size: 11px; }
+.tennis-hash-panel p { grid-column: 1 / -1; margin: 0; color: var(--theme-section-muted); font-size: 11px; }
 
-.tennis-feedback-section { display: grid; grid-template-columns: 1.05fr .95fr; gap: clamp(42px, 7vw, 96px); align-items: center; padding: clamp(82px, 9vw, 124px) max(22px, calc((100vw - var(--max)) / 2)); background: var(--mint-light); border-bottom: 6px solid var(--ink); }
+.tennis-feedback-section { display: grid; grid-template-columns: 1.05fr .95fr; gap: clamp(42px, 7vw, 96px); align-items: center; padding: clamp(82px, 9vw, 124px) max(22px, calc((100vw - var(--max)) / 2)); background: var(--theme-surface-soft); border-bottom: 6px solid var(--ink); }
 .tennis-feedback-section h2 { margin-bottom: 24px; font-size: clamp(46px, 5vw, 70px); line-height: 1; }
 .tennis-feedback-section__copy > p:not(.tennis-kicker) { max-width: 720px; color: var(--ink-2); font-size: 17px; font-weight: 650; line-height: 1.85; }
 .tennis-feedback-actions { display: flex; flex-wrap: wrap; gap: 22px; align-items: center; margin-top: 30px; }
@@ -233,19 +389,22 @@
 .tennis-feedback-form label > span:first-child { font-size: 14px; }
 .tennis-feedback-form input[type="text"],
 .tennis-feedback-form select,
-.tennis-feedback-form textarea { width: 100%; padding: 13px 14px; color: var(--ink); background: #fffdf6; border: 3px solid var(--ink); border-radius: 0; box-shadow: 4px 4px 0 var(--mint); font: 650 15px/1.55 var(--ui-sans); }
+.tennis-feedback-form textarea { width: 100%; padding: 13px 14px; color: var(--ink); background: var(--theme-surface); border: 3px solid var(--ink); border-radius: 0; box-shadow: 4px 4px 0 var(--mint); font: 650 15px/1.55 var(--ui-sans); }
 .tennis-feedback-form textarea { resize: vertical; min-height: 160px; }
 .tennis-feedback-form input:focus,
 .tennis-feedback-form select:focus,
 .tennis-feedback-form textarea:focus { outline: 3px solid var(--orange); outline-offset: 2px; }
 .tennis-feedback-form label small { justify-self: end; color: var(--muted); font: 800 11px/1 "Courier New", monospace; }
-.tennis-feedback-consent { grid-template-columns: auto 1fr; align-items: start; padding: 14px; background: rgba(237, 122, 58, .12); border-left: 6px solid var(--orange); }
+.tennis-feedback-consent { grid-template-columns: auto 1fr; align-items: start; padding: 14px; background: color-mix(in srgb, var(--orange) 12%, transparent); border-left: 6px solid var(--orange); }
 .tennis-feedback-consent input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--ink); }
 .tennis-feedback-consent span { color: var(--ink-2); font-size: 13px; line-height: 1.65; }
 .tennis-feedback-form__actions { display: flex; flex-wrap: wrap; gap: 14px; }
-.tennis-feedback-status { margin: 0; padding: 12px 14px; color: var(--ink-2); background: rgba(115, 207, 192, .2); border-left: 6px solid var(--mint); font-size: 13px; font-weight: 750; line-height: 1.6; }
+.tennis-feedback-status { margin: 0; padding: 12px 14px; color: var(--ink-2); background: color-mix(in srgb, var(--mint) 20%, transparent); border-left: 6px solid var(--mint); font-size: 13px; font-weight: 750; line-height: 1.6; }
+.tennis-feedback-fallback { justify-self: start; font-weight: 900; }
+.tennis-feedback-fallback[hidden] { display: none; }
 
-.tennis-faq { background: rgba(255, 248, 232, .7); }
+.tennis-faq { background: color-mix(in srgb, var(--paper-light) 70%, transparent); }
+.tennis-footer { color: var(--ink); background: var(--paper-light); }
 .tennis-faq__list { border-top: 3px solid var(--ink); }
 .tennis-faq details { border-bottom: 3px solid var(--ink); }
 .tennis-faq summary { padding: 24px 4px; font-size: 18px; font-weight: 900; cursor: pointer; }
@@ -259,6 +418,7 @@
 [data-pixel-reveal].is-visible { opacity: 1; transform: none; }
 
 @media (max-width: 1100px) {
+  .tennis-header-tools { margin-left: auto; }
   .tennis-hero { grid-template-columns: 1fr; }
   .tennis-hero__copy { max-width: 760px; }
   .tennis-hero__screen { width: min(940px, 100%); }
@@ -271,6 +431,9 @@
   .tennis-feature-row { grid-template-columns: 90px minmax(0, 1fr) 180px; }
   .tennis-settings-section { grid-template-columns: 1fr; }
   .tennis-settings-section__copy { max-width: 780px; }
+  .tennis-architecture-detail,
+  .tennis-contributor-strip { grid-template-columns: 1fr; }
+  .tennis-contributor-actions { grid-column: auto; }
   .tennis-install-section { grid-template-columns: 1fr; }
   .tennis-hash-panel { grid-column: auto; }
   .tennis-feedback-section { grid-template-columns: 1fr; }
@@ -278,7 +441,11 @@
 
 @media (max-width: 820px) {
   .tennis-back-link { display: none; }
-  .tennis-header { grid-template-columns: 1fr auto; }
+  .tennis-header { grid-template-columns: 1fr auto auto; }
+  .tennis-header-tools { grid-column: 2; grid-row: 1; }
+  .tennis-theme-trigger { width: 42px; padding: 8px; justify-content: center; }
+  .tennis-theme-trigger strong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .tennis-theme-panel { position: fixed; top: 78px; right: 14px; }
   .tennis-nav { grid-column: 1 / -1; }
   .tennis-hero { min-height: auto; padding-top: 54px; }
   .tennis-hero h1 { font-size: clamp(58px, 14vw, 82px); }
@@ -296,6 +463,9 @@
   .tennis-hit-line { width: 100%; }
   .tennis-racket-icon,
   .tennis-export-icon { justify-self: start; }
+  .tennis-architecture-branches { grid-template-columns: 1fr; }
+  .tennis-architecture-branches .tennis-architecture-node::before { top: -24px; left: 50% !important; right: auto !important; width: 4px; height: 20px; border: 0 !important; background: var(--tennis-cyan); transform: translateX(-50%); }
+  .tennis-architecture-merge { width: 100%; }
   .tennis-timeline::before { left: 10px; }
   .tennis-timeline li { grid-template-columns: 1fr; gap: 12px; padding-left: 44px; }
   .tennis-timeline li::before { left: 0; }
@@ -307,8 +477,11 @@
 @media (max-width: 560px) {
   .tennis-brand strong { font-size: 13px; }
   .tennis-brand small { font-size: 9px; }
+  .tennis-theme-panel { top: 70px; right: 10px; width: calc(100vw - 20px); padding: 15px; box-shadow: 7px 7px 0 var(--orange); }
+  .tennis-theme-segments { grid-template-columns: 1fr; }
   .tennis-hero,
   .tennis-feature-section,
+  .tennis-architecture-section,
   .tennis-settings-section,
   .tennis-progress-section,
   .tennis-install-section,
@@ -321,6 +494,13 @@
   .tennis-signal-strip article { border-right: 0; border-bottom: 2px dashed var(--ink-2); }
   .tennis-signal-strip article:last-child { border-bottom: 0; }
   .tennis-feature-row { padding: 24px 20px; }
+  .tennis-architecture-map { padding: 28px 14px; box-shadow: 6px 6px 0 color-mix(in srgb, var(--orange) 78%, #000); }
+  .tennis-architecture-source { min-width: 0; width: 100%; padding: 18px 14px; }
+  .tennis-architecture-node { min-height: 0; padding: 20px 17px; }
+  .tennis-architecture-detail,
+  .tennis-contributor-strip { padding: 24px 18px; box-shadow: 6px 6px 0 var(--orange); }
+  .tennis-architecture-detail dl div { grid-template-columns: 1fr; gap: 5px; }
+  .tennis-contributor-actions { display: grid; }
   .tennis-court-heading,
   .tennis-court-toolbar { padding-right: 18px; padding-left: 18px; }
   .tennis-court-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 7px; scrollbar-width: thin; }

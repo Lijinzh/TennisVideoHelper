@@ -81,6 +81,56 @@ def test_homepage_includes_scrollable_pixel_court_gallery() -> None:
     assert "data-court-next" in script
 
 
+def test_homepage_supports_system_light_dark_and_court_page_themes() -> None:
+    html = (SITE / "index.html").read_text(encoding="utf-8")
+    css = (SITE / "tennis-video-helper.css").read_text(encoding="utf-8")
+    script = (SITE / "tennis-video-helper.js").read_text(encoding="utf-8")
+    assert 'name="color-scheme" content="light dark"' in html
+    assert "data-theme-open" in html
+    assert "data-theme-panel" in html
+    assert 'data-color-mode="system"' in html
+    assert 'data-color-mode="light"' in html
+    assert 'data-color-mode="dark"' in html
+    assert "data-theme-palette-select" in html
+    assert 'value="follow"' in html
+    assert 'value="shanghai"' in html
+    assert 'value="hyrule"' in html
+    assert 'value="ashina"' in html
+    assert 'html[data-resolved-theme="light"]' in css
+    assert 'html[data-resolved-theme="dark"]' in css
+    assert 'html[data-site-palette="shanghai"]' in css
+    assert 'html[data-site-palette="dunhuang"]' in css
+    assert 'html[data-site-palette="hyrule"]' in css
+    assert 'html[data-site-palette="ashina"]' in css
+    assert "prefers-color-scheme: dark" in html
+    assert "tvh-color-mode" in script
+    assert "tvh-palette-choice" in script
+    assert "tvh-active-court" in script
+    assert "systemTheme.addEventListener" in script
+    assert "paletteChoice === 'follow'" in script
+
+
+def test_homepage_explains_project_architecture_for_contributors() -> None:
+    html = (SITE / "index.html").read_text(encoding="utf-8")
+    css = (SITE / "tennis-video-helper.css").read_text(encoding="utf-8")
+    script = (SITE / "tennis-video-helper.js").read_text(encoding="utf-8")
+    assert 'id="architecture"' in html
+    assert "项目是怎样工作的？" in html
+    assert html.count("data-architecture-node=") == 5
+    assert "声音候选" in html
+    assert "骨架与球拍确认" in html
+    assert "音画融合与回合状态机" in html
+    assert "候选片段与人工复核" in html
+    assert "验证后安全发布" in html
+    assert "uv sync --extra dev" in html
+    assert "uv run pytest -q" in html
+    assert "Pull Request" in html
+    assert "src/tennis_video_helper/detection/audio.py" in html
+    assert ".tennis-architecture-map" in css
+    assert "architectureContent" in script
+    assert "updateArchitectureDetail" in script
+
+
 def test_feedback_window_builds_a_safe_prefilled_github_issue() -> None:
     html = (SITE / "index.html").read_text(encoding="utf-8")
     script = (SITE / "tennis-video-helper.js").read_text(encoding="utf-8")
@@ -92,7 +142,15 @@ def test_feedback_window_builds_a_safe_prefilled_github_issue() -> None:
     assert "https://github.com/Lijinzh/TennisVideoHelper/issues/new" in script
     assert "issueUrl.searchParams.set('title'" in script
     assert "issueUrl.searchParams.set('body'" in script
-    assert "window.location.assign(prepared.issueUrl)" in script
+    assert "feedbackFallback?.click()" in script
+    assert "feedbackForm.checkValidity()" in script
+    assert "请先填写一句话标题" in script
+    assert "data-feedback-fallback" in html
+    assert 'option value="Windows 11 x64"' in html
+    assert 'option value="Windows 10 x64"' in html
+    assert 'name="gpu"' in html
+    assert 'name="videoSpec"' in html
+    assert "`- 显卡：${gpu}`" in script
     assert "navigator.clipboard.writeText(prepared.body)" in script
     assert ".tennis-feedback-dialog::backdrop" in css
 
@@ -111,6 +169,9 @@ def test_github_user_feedback_issue_form_exists() -> None:
     template_text = template.read_text(encoding="utf-8")
     assert "name: 用户意见反馈" in template_text
     assert 'labels: ["user feedback"]' in template_text
+    assert "- type: dropdown\n    id: environment" in template_text
+    assert "Windows 11 x64" in template_text
+    assert "id: gpu" in template_text
 
 
 def test_footer_clearly_credits_golden_philosophy() -> None:

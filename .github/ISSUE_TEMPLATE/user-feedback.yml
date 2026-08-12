@@ -25,12 +25,31 @@ body:
     validations:
       required: true
 
-  - type: input
+  - type: dropdown
     id: environment
     attributes:
       label: 使用环境
-      description: 例如 Windows 11、RTX 3070、软件版本和视频规格。
-      placeholder: Windows 11 / RTX 3070 / v0.1.0
+      description: 当前只发布 Windows 10 / 11 x64 版本。
+      options:
+        - Windows 11 x64
+        - Windows 10 x64
+        - Windows 版本不确定
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: 显卡信息
+      description: 请填写显卡型号和显存（如果知道）。
+      placeholder: NVIDIA RTX 3070 8GB
+
+  - type: input
+    id: video_spec
+    attributes:
+      label: 视频规格
+      description: 可选填写分辨率、帧率和容器格式。
+      placeholder: 4K / 60fps / MOV
 
   - type: checkboxes
     id: privacy
