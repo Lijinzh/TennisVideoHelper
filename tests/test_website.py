@@ -30,6 +30,16 @@ def test_personal_github_pages_site_has_required_assets() -> None:
         "assets/images/tennis-video-helper/larung-gar-valley-court.webp",
         "assets/images/tennis-video-helper/hyrule-inspired-court.webp",
         "assets/images/tennis-video-helper/ashina-inspired-court.webp",
+        "documentation/index.html",
+        "documentation/getting-started.html",
+        "documentation/using.html",
+        "documentation/features.html",
+        "documentation/guides.html",
+        "documentation/developer-guide.html",
+        "documentation/reference.html",
+        "documentation/docs.css",
+        "documentation/docs.js",
+        "documentation/docs-content.js",
     ]
     for relative_path in required:
         assert (SITE / relative_path).is_file(), relative_path
@@ -213,6 +223,70 @@ def test_homepage_supports_persistent_english_language_switching() -> None:
     assert "MutationObserver" in script
     assert "document.documentElement.lang" in script
     assert ".tennis-language-trigger" in css
+
+
+def test_documentation_hub_has_six_complete_sections_and_homepage_entry() -> None:
+    html = (SITE / "index.html").read_text(encoding="utf-8")
+    content = (SITE / "documentation" / "docs-content.js").read_text(encoding="utf-8")
+    assert 'href="documentation/">文档</a>' in html
+    assert 'href="documentation/">完整文档</a>' in html
+    for page_id, filename, title in (
+        ("getting-started", "getting-started.html", "Getting Started"),
+        ("using", "using.html", "Using"),
+        ("features", "features.html", "Features"),
+        ("guides", "guides.html", "Guides and Tutorials"),
+        ("developer-guide", "developer-guide.html", "Developer Guide"),
+        ("reference", "reference.html", "Reference"),
+    ):
+        page = (SITE / "documentation" / filename).read_text(encoding="utf-8")
+        assert f'data-doc-page="{page_id}"' in page
+        assert title in page
+        assert f"{filename}" in content
+    assert "六大板块" in content
+    assert "Six documentation areas" in content
+    assert "源视频始终只读" in content
+    assert "Source videos remain read-only" in content
+
+
+def test_documentation_hub_supports_navigation_search_copy_and_responsive_menu() -> None:
+    script = (SITE / "documentation" / "docs.js").read_text(encoding="utf-8")
+    css = (SITE / "documentation" / "docs.css").read_text(encoding="utf-8")
+    assert "data-doc-search-open" in script
+    assert "Ctrl K" in script
+    assert "searchable" in script
+    assert "navigator.clipboard.writeText" in script
+    assert "data-doc-language" in script
+    assert "tvh-language" in script
+    assert "data-doc-menu" in script
+    assert "IntersectionObserver" in script
+    assert "docs-pagination" in script
+    assert "@media (max-width: 860px)" in css
+    assert ".docs-sidebar.is-open" in css
+    assert ".docs-search-dialog::backdrop" in css
+    assert ".docs-table-wrap { overflow-x: auto" in css
+    assert "prefers-reduced-motion" in css
+
+
+def test_documentation_reference_matches_current_release_and_cli_contract() -> None:
+    content = (SITE / "documentation" / "docs-content.js").read_text(encoding="utf-8")
+    assert "TennisVideoHelper-Setup-0.1.3.exe" in content
+    assert "231,161,078" in content
+    assert "9A7451CDB712DE811B18A74DF2101D430A73478F372F173CC4E2536EE80F258E" in content
+    assert "--min-rally-duration" in content
+    assert "--min-confirmed-hits" in content
+    assert "--overwrite-existing / --keep-existing" in content
+    assert "--original-quality / --1080p-output" in content
+    assert "optimization-profile.json" in content
+    assert "segments.csv" in content
+    assert "analysis.json" in content
+    assert "review-selection.json" in content
+
+
+def test_contributing_redirects_to_the_full_developer_guide() -> None:
+    html = (SITE / "contributing.html").read_text(encoding="utf-8")
+    assert 'url=documentation/developer-guide.html' in html
+    assert 'href="documentation/developer-guide.html"' in html
+    assert "CONTRIBUTING.md" in html
 
 
 def test_github_user_feedback_issue_form_exists() -> None:

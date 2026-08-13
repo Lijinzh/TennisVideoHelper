@@ -9,7 +9,7 @@
     '跟随系统 · 跟随球场：陕北黄土': 'System · Follow court: Shaanbei Loess',
     '跳到主要内容': 'Skip to main content',
     '首页': 'Home', '球场': 'Courts', '功能': 'Features', '架构': 'Architecture',
-    '设置': 'Settings', '进度': 'Progress', '安装': 'Install', '反馈': 'Feedback',
+    '设置': 'Settings', '进度': 'Progress', '安装': 'Install', '文档': 'Docs', '完整文档': 'Full Documentation', '反馈': 'Feedback',
     '主题': 'Theme', '页面主题': 'Page Theme', '明暗模式': 'Color Mode',
     '跟随系统': 'System', '浅色': 'Light', '深色': 'Dark',
     '浅色模式': 'Light mode', '深色模式': 'Dark mode',
