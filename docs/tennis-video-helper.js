@@ -4,7 +4,7 @@
     filename: 'TennisVideoHelper-Setup-0.1.3.exe',
     size: '220.5 MiB',
     sha256: '9A7451CDB712DE811B18A74DF2101D430A73478F372F173CC4E2536EE80F258E',
-    url: 'https://github.com/Lijinzh/TennisVideoHelper/releases/download/v0.1.3/TennisVideoHelper-Setup-0.1.3.exe',
+    url: 'https://gitcode.com/Black__Jacket/TennisVideoHelper/releases/download/v0.1.3/TennisVideoHelper-Setup-0.1.3.exe',
   };
 
   for (const link of document.querySelectorAll('[data-tv-download]')) {

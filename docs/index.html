@@ -42,7 +42,7 @@
   <link rel="stylesheet" href="tennis-video-helper.css?v=20260812-v9">
   <link rel="stylesheet" href="github-star.css?v=20260812-v1">
   <script src="pixel-preview.js?v=20260812-tennis" defer></script>
-  <script src="tennis-video-helper.js?v=20260812-v9" defer></script>
+  <script src="tennis-video-helper.js?v=20260813-v10" defer></script>
   <script src="github-star.js?v=20260812-v1" defer></script>
   <script src="tennis-video-helper-i18n.js?v=20260812-v2" defer></script>
 </head>
@@ -120,13 +120,13 @@
         <h1 id="tennis-title">把长视频里的<br><em>精彩回合</em>挑出来</h1>
         <p class="tennis-hero__lead">声音找到候选，人体骨架确认挥拍，球拍检测过滤走路和摆臂。分析完成后，在软件里逐段预览、查看击球点，再勾选导出。</p>
         <div class="tennis-hero__actions">
-          <a class="tennis-button tennis-button--primary" data-tv-download href="https://github.com/Lijinzh/TennisVideoHelper/releases/download/v0.1.3/TennisVideoHelper-Setup-0.1.3.exe" download="TennisVideoHelper-Setup-0.1.3.exe" rel="noopener noreferrer">下载 Windows 安装包</a>
+          <a class="tennis-button tennis-button--primary" data-tv-download href="https://gitcode.com/Black__Jacket/TennisVideoHelper/releases/download/v0.1.3/TennisVideoHelper-Setup-0.1.3.exe" download="TennisVideoHelper-Setup-0.1.3.exe" rel="noopener noreferrer">下载 Windows 安装包</a>
           <a class="tennis-button" href="#install">查看安装步骤</a>
         </div>
         <div class="tennis-install-note" role="status" data-download-status>
           <span>v0.1.3</span><strong>220.5 MiB</strong><small>内置运行环境、模型与 FFmpeg，无需另装 Python。</small>
         </div>
-        <p class="tennis-private-note">安装包由公开 GitHub Release 提供；点击即可下载。若网络连接不稳定，也可以进入发布页后重新下载。</p>
+        <p class="tennis-private-note">安装包优先从公开 GitCode 国内镜像下载；若网络连接不稳定，也可以切换到 GitHub Release。</p>
       </div>
 
       <figure class="tennis-hero__screen" data-pixel-reveal>
@@ -561,8 +561,9 @@
         <h2 id="install-title">下载，校验，安装。三步开始筛选。</h2>
         <p>当前安装包没有数字签名，Windows SmartScreen 可能显示未知发布者。只从本页固定版本链接下载，并在安装前核对 SHA-256。</p>
         <div class="tennis-install-actions">
-          <a class="tennis-button tennis-button--light" data-tv-download href="https://github.com/Lijinzh/TennisVideoHelper/releases/download/v0.1.3/TennisVideoHelper-Setup-0.1.3.exe" download="TennisVideoHelper-Setup-0.1.3.exe" rel="noopener noreferrer">下载 TennisVideoHelper-Setup-0.1.3.exe</a>
-          <a class="tennis-text-link" href="https://github.com/Lijinzh/TennisVideoHelper/releases/tag/v0.1.3" target="_blank" rel="noopener noreferrer">查看 v0.1.3 发布页 →</a>
+          <a class="tennis-button tennis-button--light" data-tv-download href="https://gitcode.com/Black__Jacket/TennisVideoHelper/releases/download/v0.1.3/TennisVideoHelper-Setup-0.1.3.exe" download="TennisVideoHelper-Setup-0.1.3.exe" rel="noopener noreferrer">下载 TennisVideoHelper-Setup-0.1.3.exe</a>
+          <a class="tennis-text-link" href="https://gitcode.com/Black__Jacket/TennisVideoHelper/releases" target="_blank" rel="noopener noreferrer">查看 GitCode 发布页 →</a>
+          <a class="tennis-text-link" href="https://github.com/Lijinzh/TennisVideoHelper/releases/tag/v0.1.3" target="_blank" rel="noopener noreferrer">GitHub 备用下载 →</a>
         </div>
       </div>
 
@@ -605,7 +606,7 @@
         <details data-pixel-reveal><summary>安装版还需要 Python 或 FFmpeg 吗？</summary><p>不需要。安装包已经内置应用运行环境、模型以及程序使用的 FFmpeg 与 ffprobe。</p></details>
         <details data-pixel-reveal><summary>一定要 NVIDIA 显卡吗？</summary><p>轻量安装版可以使用 ONNX GPU 路径；NVIDIA 显卡还能启用 NVDEC / NVENC，并在支持的环境中使用 CUDA 或 TensorRT。不可用时软件会明确显示回退状态。</p></details>
         <details data-pixel-reveal><summary>程序会删除我的原视频吗？</summary><p>不会。源视频始终只读；软件只向你选择的输出目录写入候选和最终片段。</p></details>
-        <details data-pixel-reveal><summary>为什么安装包下载很慢或打不开？</summary><p>安装包托管在公开 GitHub Release。可以尝试切换网络、稍后重试，或者先进入 v0.1.3 发布页再点击安装包文件。</p></details>
+        <details data-pixel-reveal><summary>为什么安装包下载很慢或打不开？</summary><p>安装包同时托管在公开 GitCode 与 GitHub Release。本页默认使用 GitCode 国内镜像；如果仍然下载缓慢，可以进入发布页重试或切换 GitHub 备用下载。</p></details>
         <details data-pixel-reveal><summary>网页填写反馈后会立刻公开吗？</summary><p>不会。内容只在你的浏览器里整理；跳转 GitHub 后仍需要你检查并确认提交。Issue 创建后会公开显示，请勿填写手机号、邮箱、私人视频地址或其他敏感信息。</p></details>
       </div>
     </section>

@@ -127,7 +127,7 @@ def test_homepage_supports_system_light_dark_and_court_page_themes() -> None:
     assert ".tennis-theme-preview" in css
     assert css.count("--theme-scene: url(") == 16
     assert 'tennis-video-helper.css?v=20260812-v9' in html
-    assert 'tennis-video-helper.js?v=20260812-v9' in html
+    assert 'tennis-video-helper.js?v=20260813-v10' in html
     for asset in (
         "roland-garros-clay-court.webp",
         "wimbledon-grass-court.webp",
@@ -203,7 +203,13 @@ def test_feedback_window_builds_a_safe_prefilled_github_issue() -> None:
 
 def test_public_download_copy_is_current() -> None:
     html = (SITE / "index.html").read_text(encoding="utf-8")
-    assert "安装包由公开 GitHub Release 提供" in html
+    script = (SITE / "tennis-video-helper.js").read_text(encoding="utf-8")
+    gitcode_asset = "https://gitcode.com/Black__Jacket/TennisVideoHelper/releases/download/v0.1.3/TennisVideoHelper-Setup-0.1.3.exe"
+    assert "安装包优先从公开 GitCode 国内镜像下载" in html
+    assert gitcode_asset in html
+    assert gitcode_asset in script
+    assert "tennis-video-helper.js?v=20260813-v10" in html
+    assert "https://github.com/Lijinzh/TennisVideoHelper/releases/tag/v0.1.3" in html
     assert "当前安装包位于私有 GitHub Release" not in html
 
 
