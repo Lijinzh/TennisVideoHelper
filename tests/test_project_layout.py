@@ -57,7 +57,7 @@ def test_console_entry_points_follow_the_new_layers() -> None:
         "tennis-video-helper": "tennis_video_helper.app.cli:app",
         "tennis-video-helper-gui": "tennis_video_helper.ui.main_window:main",
     }
-    assert project["version"] == "0.1.3"
+    assert project["version"] == "0.1.4"
 
 
 def test_lower_layers_do_not_depend_on_application_or_ui() -> None:

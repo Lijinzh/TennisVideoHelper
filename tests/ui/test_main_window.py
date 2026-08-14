@@ -925,7 +925,7 @@ def test_update_actions_are_available_and_enabled_by_default() -> None:
 
     assert window.check_updates_action.text() == "检查更新…"
     assert window.auto_updates_action.isCheckable() is True
-    assert window.update_controller.current_version == "0.1.3"
+    assert window.update_controller.current_version == "0.1.4"
 
     window.close()
     app.processEvents()

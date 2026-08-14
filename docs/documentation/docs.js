@@ -18,13 +18,13 @@
       home: '官网首页', search: '搜索文档', searchPlaceholder: '搜索安装、参数、GPU、输出格式…',
       menu: '目录', close: '关闭', sections: '文档板块', onPage: '本页内容', version: '当前版本',
       previous: '上一篇', next: '下一篇', noResults: '没有找到相关文档', copy: '复制', copied: '已复制',
-      github: 'GitHub 仓库', release: '下载 v0.1.3', language: 'English', footer: '官方文档 · 本地视频处理 · 源视频只读',
+      github: 'GitHub 仓库', release: '下载 v0.1.4', language: 'English', footer: '官方文档 · 本地视频处理 · 源视频只读',
     },
     en: {
       home: 'Product Home', search: 'Search docs', searchPlaceholder: 'Search installation, settings, GPU, outputs…',
       menu: 'Menu', close: 'Close', sections: 'Documentation', onPage: 'On this page', version: 'Current version',
       previous: 'Previous', next: 'Next', noResults: 'No matching documentation', copy: 'Copy', copied: 'Copied',
-      github: 'GitHub Repository', release: 'Download v0.1.3', language: '简体中文', footer: 'Official docs · Local video processing · Read-only source videos',
+      github: 'GitHub Repository', release: 'Download v0.1.4', language: '简体中文', footer: 'Official docs · Local video processing · Read-only source videos',
     },
   };
   const t = (key) => labels[language][key];
