@@ -33,6 +33,7 @@ from tennis_video_helper.ui.main_window import (
     parse_review_line,
     process_invocation,
     process_ids_match,
+    resolve_input_folder,
 )
 import tennis_video_helper.ui.main_window as gui_module
 from tennis_video_helper.core.models import MediaInfo, RallySegment
@@ -171,6 +172,18 @@ def test_parse_output_path_rejects_empty_text() -> None:
         parse_output_path("  ")
 
 
+def test_resolve_input_folder_accepts_video_or_directory(tmp_path: Path) -> None:
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    video = video_dir / "match.mov"
+    video.write_bytes(b"video")
+
+    assert resolve_input_folder(str(video_dir)) == video_dir.resolve()
+    assert resolve_input_folder(str(video)) == video_dir.resolve()
+    with pytest.raises(ValueError, match="输入路径不存在"):
+        resolve_input_folder(str(tmp_path / "missing.mov"))
+
+
 def test_video_file_filter_only_advertises_supported_formats() -> None:
     assert "*.avi" not in VIDEO_FILE_FILTER.lower()
     for extension in ("mp4", "mov", "mkv", "m4v"):
@@ -267,6 +280,12 @@ def test_review_workspace_fits_primary_controls_without_scrolling() -> None:
     input_position = window.input_edit.mapTo(
         central, window.input_edit.rect().topLeft()
     )
+    input_open_position = window.open_input_button.mapTo(
+        central, window.open_input_button.rect().topLeft()
+    )
+    output_open_position = window.open_output_button.mapTo(
+        central, window.open_output_button.rect().topLeft()
+    )
 
     candidate_position = window.candidate_list.mapTo(
         central, window.candidate_list.rect().topLeft()
@@ -275,7 +294,51 @@ def test_review_workspace_fits_primary_controls_without_scrolling() -> None:
     assert candidate_position.x() < preview_position.x()
     assert start_position.x() > preview_position.x() + window.preview.width()
     assert input_position.y() < preview_position.y()
+    assert input_open_position.x() > input_position.x() + window.input_edit.width()
+    assert output_open_position.x() > window.output_edit.mapTo(
+        central, window.output_edit.rect().topRight()
+    ).x()
     assert window.page_scroll.verticalScrollBar().maximum() == 0
+
+    window.close()
+    app.processEvents()
+
+
+def test_top_bar_open_buttons_open_input_parent_and_create_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    video = input_dir / "match.mp4"
+    video.write_bytes(b"video")
+    output_dir = tmp_path / "output"
+    opened: list[Path] = []
+    stored: dict[str, object] = {}
+
+    class FakeSettings:
+        def value(self, key: str, default=None):
+            return stored.get(key, default)
+
+        def setValue(self, key: str, value) -> None:  # noqa: N802 - Qt API
+            stored[key] = value
+
+        def sync(self) -> None:
+            pass
+
+    monkeypatch.setattr(gui_module, "_application_settings", FakeSettings)
+    monkeypatch.setattr(gui_module, "open_local_folder", opened.append)
+    monkeypatch.setattr(gui_module, "_video_thumbnail", lambda _path: QPixmap())
+
+    window = MainWindow()
+    window.input_edit.setText(str(video))
+    window.output_edit.setText(str(output_dir))
+    window.open_input_button.click()
+    window.open_output_button.click()
+
+    assert opened == [input_dir.resolve(), output_dir]
+    assert output_dir.is_dir()
 
     window.close()
     app.processEvents()

@@ -590,6 +590,32 @@ def parse_output_path(output_text: str) -> Path:
     return Path(output_text.strip())
 
 
+def resolve_input_folder(input_text: str) -> Path:
+    """把输入视频或输入目录转换为可在资源管理器中打开的目录。"""
+
+    if not input_text.strip():
+        raise ValueError("请选择源视频或文件夹。")
+    path = Path(input_text.strip())
+    if path.is_dir():
+        return path.resolve()
+    if path.is_file():
+        return path.parent.resolve()
+    raise ValueError(f"输入路径不存在：{path}")
+
+
+def open_local_folder(path: Path) -> None:
+    """使用当前平台的文件管理器打开一个已存在目录。"""
+
+    resolved = path.resolve()
+    if not resolved.is_dir():
+        raise OSError(f"文件夹不存在：{resolved}")
+    if os.name == "nt":
+        os.startfile(resolved)  # type: ignore[attr-defined]
+        return
+    if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(resolved))):
+        raise OSError(f"系统无法打开文件夹：{resolved}")
+
+
 def build_stop_command(process_id: int, *, platform: str = os.name) -> list[str] | None:
     """在 Windows 上构造终止整个后台进程树的命令。"""
 
@@ -1144,6 +1170,9 @@ class MainWindow(QMainWindow):
         choose_output.triggered.connect(self._choose_output_folder)
         file_menu.addAction(choose_output)
         file_menu.addSeparator()
+        open_input = QAction("打开输入文件夹", self)
+        open_input.triggered.connect(self._open_input)
+        file_menu.addAction(open_input)
         open_output = QAction("打开输出文件夹", self)
         open_output.triggered.connect(self._open_output)
         file_menu.addAction(open_output)
@@ -1219,10 +1248,24 @@ class MainWindow(QMainWindow):
         self.input_edit.setPlaceholderText("在“文件”菜单选择视频或文件夹")
         self.input_edit.editingFinished.connect(self._input_editing_finished)
         layout.addWidget(self.input_edit, 2)
+        self.open_input_button = QPushButton("打开")
+        self.open_input_button.setObjectName("pathOpenButton")
+        self.open_input_button.setFixedWidth(58)
+        self.open_input_button.setMinimumHeight(42)
+        self.open_input_button.setToolTip(translate_text("打开输入视频所在文件夹"))
+        self.open_input_button.clicked.connect(self._open_input)
+        layout.addWidget(self.open_input_button)
         layout.addWidget(QLabel("输出"))
         self.output_edit = QLineEdit(str(default_output))
         self.output_edit.setPlaceholderText("在“文件”菜单选择输出目录")
         layout.addWidget(self.output_edit, 2)
+        self.open_output_button = QPushButton("打开")
+        self.open_output_button.setObjectName("pathOpenButton")
+        self.open_output_button.setFixedWidth(58)
+        self.open_output_button.setMinimumHeight(42)
+        self.open_output_button.setToolTip(translate_text("打开当前输出文件夹"))
+        self.open_output_button.clicked.connect(self._open_output)
+        layout.addWidget(self.open_output_button)
         return bar
 
     def _show_parameter_panel(self, _checked: bool = False) -> None:
@@ -2784,14 +2827,17 @@ class MainWindow(QMainWindow):
         if path:
             self.output_edit.setText(path)
 
+    def _open_input(self) -> None:
+        try:
+            open_local_folder(resolve_input_folder(self.input_edit.text()))
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "无法打开输入目录", str(exc))
+
     def _open_output(self) -> None:
         try:
             path = parse_output_path(self.output_edit.text())
             path.mkdir(parents=True, exist_ok=True)
-            if os.name == "nt":
-                os.startfile(path)  # type: ignore[attr-defined]
-            else:
-                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+            open_local_folder(path)
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "无法打开输出目录", str(exc))
 
