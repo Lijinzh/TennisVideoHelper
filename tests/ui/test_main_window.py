@@ -598,7 +598,31 @@ def test_review_session_populates_selectable_candidates_and_hit_timeline(
     )
     assert window.candidate_list.item(1).text().startswith("已看 · ")
 
-    window._review_session = None
+    messages: list[str] = []
+    monkeypatch.setattr(
+        gui_module.QMessageBox,
+        "information",
+        lambda _parent, _title, message: messages.append(message),
+    )
+    window._publish_selected_candidates()
+    app.processEvents()
+
+    assert messages and "剩余 1 个候选仍保留" in messages[-1]
+    assert window._review_session is not None
+    assert window._review_session.published_clip_ids == ("1:2",)
+    assert window.candidate_list.count() == 1
+    remaining_item = window.candidate_list.item(0)
+    assert remaining_item.data(Qt.ItemDataRole.UserRole) == "1:1"
+    assert remaining_item.checkState() == Qt.CheckState.Unchecked
+    assert remaining_item.data(gui_module.CANDIDATE_VIEWED_ROLE) is True
+    assert window._current_candidate_id == "1:1"
+    assert window.selected_count_label.text() == "已选 0/1 段"
+    assert window.phase_label.text() == "本次已导出 1 个片段，剩余 1 个待筛选"
+    assert second_clip_path.exists()
+    assert (video.output_dir / "clips" / second_clip_path.name).read_bytes() == b"preview-2"
+    assert clip_path.exists()
+
+    window._discard_current_review()
     window.close()
     app.processEvents()
 

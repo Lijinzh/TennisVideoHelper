@@ -2177,16 +2177,19 @@ class MainWindow(QMainWindow):
                 self.status_badge.setText("■  等待任务")
 
     def _set_review_session(self, session: ReviewSession) -> None:
+        published_ids = set(session.published_clip_ids)
         next_candidates = {
             clip.id: (video, clip)
             for video in session.videos
             for clip in video.clips
+            if clip.id not in published_ids
         }
         same_session = (
             self._review_session is not None
             and self._review_session.root_dir == session.root_dir
-            and set(self._review_candidates).issubset(next_candidates)
         )
+        previous_row = self.candidate_list.currentRow()
+        previous_candidate_id = self._current_candidate_id
         if not same_session:
             self._loading_candidates = True
             self.candidate_list.clear()
@@ -2195,13 +2198,27 @@ class MainWindow(QMainWindow):
             self._viewed_candidate_ids.clear()
             self._current_candidate_id = None
 
-        existing_ids = set(self._review_candidates)
+        self._loading_candidates = True
+        signals_were_blocked = self.candidate_list.blockSignals(True)
+        if same_session:
+            for index in range(self.candidate_list.count() - 1, -1, -1):
+                item = self.candidate_list.item(index)
+                candidate_id = str(item.data(Qt.ItemDataRole.UserRole))
+                if candidate_id not in next_candidates:
+                    self.candidate_list.takeItem(index)
+            self._viewed_candidate_ids.intersection_update(next_candidates)
+            if previous_candidate_id not in next_candidates:
+                self._current_candidate_id = None
+
+        existing_ids = {
+            str(self.candidate_list.item(index).data(Qt.ItemDataRole.UserRole))
+            for index in range(self.candidate_list.count())
+        }
         self._review_session = session
         self._review_candidates = next_candidates
-        self._loading_candidates = True
         for video in session.videos:
             for clip in video.clips:
-                if clip.id in existing_ids:
+                if clip.id in published_ids or clip.id in existing_ids:
                     continue
                 item = QListWidgetItem(
                     self._candidate_item_text(video, clip, viewed=False)
@@ -2220,15 +2237,29 @@ class MainWindow(QMainWindow):
                     f"原始区间：{clip.segment.output_start:.2f}–{clip.segment.output_end:.2f} 秒"
                 )
                 self.candidate_list.addItem(item)
+        self.candidate_list.blockSignals(signals_were_blocked)
         self._loading_candidates = False
-        self.video_count_label.setText(f"{len(session.clips)} 段")
+        pending_count = len(next_candidates)
+        self.video_count_label.setText(f"{pending_count} 段")
         self._update_selected_count()
         idle = self.process.state() == QProcess.ProcessState.NotRunning
-        self.select_all_action.setEnabled(idle and bool(session.clips))
-        self.select_none_action.setEnabled(idle and bool(session.clips))
-        if session.clips and self.candidate_list.currentRow() < 0:
-            self.candidate_list.setCurrentRow(0)
+        self.select_all_action.setEnabled(idle and bool(next_candidates))
+        self.select_none_action.setEnabled(idle and bool(next_candidates))
+        if next_candidates:
+            target_row = min(max(previous_row, 0), self.candidate_list.count() - 1)
+            if previous_candidate_id in next_candidates:
+                for index in range(self.candidate_list.count()):
+                    item = self.candidate_list.item(index)
+                    if str(item.data(Qt.ItemDataRole.UserRole)) == previous_candidate_id:
+                        target_row = index
+                        break
+            self.candidate_list.setCurrentRow(target_row)
+            current = self.candidate_list.item(target_row)
+            current_id = str(current.data(Qt.ItemDataRole.UserRole))
+            if self._current_candidate_id != current_id:
+                self._candidate_changed(current, None)
         else:
+            self._clear_preview_only("所有候选片段均已导出")
             self._update_navigation_buttons()
 
     def _candidate_changed(
@@ -2440,7 +2471,7 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
         self.publish_button.setEnabled(False)
         self.status_badge.setText("■  正在发布结果")
-        self.task_summary_label.setText("正在删除未勾选候选并发布正式结果……")
+        self.task_summary_label.setText("正在导出勾选片段，未导出的候选会继续保留……")
         try:
             published = publish_review_session(self._review_session, selected_ids)
         except (OSError, ValueError, RuntimeError) as exc:
@@ -2451,18 +2482,37 @@ class MainWindow(QMainWindow):
             return
 
         output_text = "\n".join(str(path) for path in published.output_dirs)
-        self._review_session = None
-        self._review_manifest_path = None
-        self._review_candidates.clear()
-        self._viewed_candidate_ids.clear()
-        self._clear_candidate_view()
         self.status_badge.setText("■  导出完成")
-        self.phase_label.setText(f"已导出 {len(published.clip_paths)} 个片段")
-        self.task_summary_label.setText("人工确认后的片段已保存到输出目录。")
+        exported_count = len(published.clip_paths)
+        remaining_session = published.remaining_session
+        if remaining_session is not None:
+            remaining_count = len(remaining_session.pending_clips)
+            self._review_manifest_path = remaining_session.manifest_path
+            self._set_review_session(remaining_session)
+            self.phase_label.setText(
+                f"本次已导出 {exported_count} 个片段，剩余 {remaining_count} 个待筛选"
+            )
+            self.task_summary_label.setText(
+                "未导出的候选片段仍保留在列表中，可以继续筛选和分批导出。"
+            )
+            message = (
+                f"已导出 {exported_count} 个片段。\n"
+                f"剩余 {remaining_count} 个候选仍保留，可以继续筛选。\n\n"
+                f"{output_text}"
+            )
+        else:
+            self._review_session = None
+            self._review_manifest_path = None
+            self._review_candidates.clear()
+            self._viewed_candidate_ids.clear()
+            self._clear_candidate_view()
+            self.phase_label.setText(f"已导出 {exported_count} 个片段")
+            self.task_summary_label.setText("人工确认后的片段已保存到输出目录。")
+            message = f"已导出 {exported_count} 个片段。\n\n{output_text}"
         QMessageBox.information(
             self,
             "导出完成",
-            f"已导出 {len(published.clip_paths)} 个片段。\n\n{output_text}",
+            message,
         )
 
     def _previous_candidate(self) -> None:

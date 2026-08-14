@@ -38,7 +38,7 @@ def _media(path: Path) -> MediaInfo:
     )
 
 
-def test_review_session_round_trip_and_publishes_only_selected_clip(
+def test_review_session_round_trip_supports_incremental_exports(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "source.mp4"
@@ -102,10 +102,34 @@ def test_review_session_round_trip_and_publishes_only_selected_clip(
     assert (output_dir / "clips" / first_path.name).read_bytes() == b"first"
     assert not (output_dir / "clips" / second_path.name).exists()
     assert not (output_dir / "old.txt").exists()
-    assert not root.exists()
+    assert root.exists()
+    assert second_path.read_bytes() == b"second"
+    assert published.remaining_session is not None
+    assert published.remaining_session.published_clip_ids == ("1:1",)
+    assert [clip.id for clip in published.remaining_session.pending_clips] == ["1:2"]
+    reloaded = load_review_session(manifest)
+    assert reloaded.published_clip_ids == ("1:1",)
     analysis = json.loads((output_dir / "analysis.json").read_text(encoding="utf-8"))
     assert [clip["index"] for clip in analysis["clips"]] == [1]
     selection = json.loads(
         (output_dir / "review-selection.json").read_text(encoding="utf-8")
     )
     assert selection["selected_clip_ids"] == ["1:1"]
+    assert selection["last_exported_clip_ids"] == ["1:1"]
+    assert selection["remaining_clip_ids"] == ["1:2"]
+
+    second_publish = publish_review_session(reloaded, ["1:2"])
+
+    assert second_publish.remaining_session is None
+    assert second_publish.clip_paths == (output_dir / "clips" / second_path.name,)
+    assert not root.exists()
+    assert (output_dir / "clips" / first_path.name).read_bytes() == b"first"
+    assert (output_dir / "clips" / second_path.name).read_bytes() == b"second"
+    analysis = json.loads((output_dir / "analysis.json").read_text(encoding="utf-8"))
+    assert [clip["index"] for clip in analysis["clips"]] == [1, 2]
+    selection = json.loads(
+        (output_dir / "review-selection.json").read_text(encoding="utf-8")
+    )
+    assert selection["selected_clip_ids"] == ["1:1", "1:2"]
+    assert selection["last_exported_clip_ids"] == ["1:2"]
+    assert selection["remaining_clip_ids"] == []
