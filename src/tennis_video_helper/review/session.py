@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import asdict, dataclass, fields
+import tempfile
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -68,6 +69,7 @@ class ReviewSession:
     root_dir: Path
     overwrite_existing_output: bool
     videos: tuple[ReviewVideoCandidate, ...]
+    published_clip_ids: tuple[str, ...] = ()
 
     @property
     def manifest_path(self) -> Path:
@@ -77,6 +79,13 @@ class ReviewSession:
     def clips(self) -> tuple[ReviewClipCandidate, ...]:
         return tuple(clip for video in self.videos for clip in video.clips)
 
+    @property
+    def pending_clips(self) -> tuple[ReviewClipCandidate, ...]:
+        """尚未导出、仍需用户筛选的候选片段。"""
+
+        published = set(self.published_clip_ids)
+        return tuple(clip for clip in self.clips if clip.id not in published)
+
 
 @dataclass(frozen=True, slots=True)
 class PublishedReview:
@@ -84,6 +93,7 @@ class PublishedReview:
 
     output_dirs: tuple[Path, ...]
     clip_paths: tuple[Path, ...]
+    remaining_session: ReviewSession | None
 
 
 def save_review_session(session: ReviewSession) -> Path:
@@ -94,6 +104,7 @@ def save_review_session(session: ReviewSession) -> Path:
         "version": REVIEW_MANIFEST_VERSION,
         "root_dir": str(session.root_dir),
         "overwrite_existing_output": session.overwrite_existing_output,
+        "published_clip_ids": list(session.published_clip_ids),
         "videos": [_video_payload(video) for video in session.videos],
     }
     temporary = session.manifest_path.with_suffix(".json.tmp")
@@ -117,6 +128,9 @@ def load_review_session(manifest_path: Path) -> ReviewSession:
         root_dir=Path(payload.get("root_dir") or path.parent),
         overwrite_existing_output=bool(payload.get("overwrite_existing_output")),
         videos=videos,
+        published_clip_ids=tuple(
+            str(clip_id) for clip_id in payload.get("published_clip_ids", [])
+        ),
     )
     if session.manifest_path.resolve() != path.resolve():
         raise ValueError("候选复核清单路径与会话目录不一致")
@@ -134,26 +148,93 @@ def publish_review_session(
     session: ReviewSession,
     selected_clip_ids: Iterable[str],
 ) -> PublishedReview:
-    """只发布用户勾选的片段，并为它们生成最终报告。"""
+    """增量发布用户勾选的片段，并保留其余候选供后续筛选。"""
 
     selected = set(selected_clip_ids)
     known = {clip.id for clip in session.clips}
     unknown = selected - known
     if unknown:
         raise ValueError(f"包含未知候选片段：{sorted(unknown)[0]}")
+    if not selected:
+        raise ValueError("请至少选择一个需要导出的候选片段")
+
+    already_published = selected.intersection(session.published_clip_ids)
+    if already_published:
+        raise ValueError(f"候选片段已经导出：{sorted(already_published)[0]}")
+
+    published_ids = set(session.published_clip_ids)
+    published_ids.update(selected)
+    ordered_published_ids = tuple(
+        clip.id for clip in session.clips if clip.id in published_ids
+    )
 
     output_dirs: list[Path] = []
     clip_paths: list[Path] = []
     for video in session.videos:
         chosen = [clip for clip in video.clips if clip.id in selected]
         if not chosen:
-            shutil.rmtree(video.staging_dir, ignore_errors=True)
             continue
+        cumulative = [clip for clip in video.clips if clip.id in published_ids]
+        previous = [
+            clip for clip in video.clips if clip.id in session.published_clip_ids
+        ]
+        _publish_video_selection(
+            session,
+            video,
+            cumulative,
+            chosen,
+            previous,
+        )
+        output_dirs.append(video.output_dir)
+        clip_paths.extend(video.output_dir / "clips" / clip.path.name for clip in chosen)
 
-        chosen_ids = {clip.id for clip in chosen}
-        for clip in video.clips:
-            if clip.id not in chosen_ids:
-                clip.path.unlink(missing_ok=True)
+    updated_session = replace(
+        session,
+        published_clip_ids=ordered_published_ids,
+    )
+    remaining_session: ReviewSession | None = updated_session
+    if updated_session.pending_clips:
+        save_review_session(updated_session)
+    else:
+        discard_review_session(updated_session)
+        remaining_session = None
+    return PublishedReview(
+        tuple(output_dirs),
+        tuple(clip_paths),
+        remaining_session,
+    )
+
+
+def _publish_video_selection(
+    session: ReviewSession,
+    video: ReviewVideoCandidate,
+    cumulative: list[ReviewClipCandidate],
+    chosen: list[ReviewClipCandidate],
+    previous: list[ReviewClipCandidate],
+) -> None:
+    """在独立暂存目录中累计结果，再原子替换正式输出。"""
+
+    video.output_dir.parent.mkdir(parents=True, exist_ok=True)
+    publishing_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f".{video.output_dir.name}.review-publish-",
+            dir=video.output_dir.parent,
+        )
+    )
+    try:
+        if previous and video.output_dir.exists():
+            shutil.copytree(video.output_dir, publishing_dir, dirs_exist_ok=True)
+        elif not previous and not session.overwrite_existing_output and video.output_dir.exists():
+            raise FileExistsError(f"输出目录已存在：{video.output_dir}")
+
+        clips_dir = publishing_dir / "clips"
+        clips_dir.mkdir(parents=True, exist_ok=True)
+        for clip in cumulative:
+            target = clips_dir / clip.path.name
+            if clip.path.is_file():
+                shutil.copy2(clip.path, target)
+            elif not target.is_file():
+                raise FileNotFoundError(f"候选片段缓存不存在：{clip.path}")
 
         published_records = [
             ClipRecord(
@@ -163,43 +244,41 @@ def publish_review_session(
                 verified=True,
                 error=None,
             )
-            for clip in chosen
+            for clip in cumulative
         ]
         from tennis_video_helper.review.reporting import write_reports
 
         write_reports(
-            video.staging_dir,
+            publishing_dir,
             video.media,
             published_records,
             list(video.audio_events),
             list(video.visual_events),
             list(video.fused_events),
         )
+        cumulative_ids = [clip.id for clip in cumulative]
+        cumulative_id_set = set(cumulative_ids)
         selection_payload = {
             "source": str(video.source),
-            "selected_clip_ids": [clip.id for clip in chosen],
-            "selected_count": len(chosen),
+            "selected_clip_ids": cumulative_ids,
+            "last_exported_clip_ids": [clip.id for clip in chosen],
+            "remaining_clip_ids": [
+                clip.id for clip in video.clips if clip.id not in cumulative_id_set
+            ],
+            "selected_count": len(cumulative),
             "candidate_count": len(video.clips),
         }
-        (video.staging_dir / "review-selection.json").write_text(
+        (publishing_dir / "review-selection.json").write_text(
             json.dumps(selection_payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
-        video.output_dir.parent.mkdir(parents=True, exist_ok=True)
-        from tennis_video_helper.media.publication import (
-            replace_output_directory,
-            replace_path_with_retry,
-        )
-        if session.overwrite_existing_output:
-            replace_output_directory(video.staging_dir, video.output_dir)
-        else:
-            replace_path_with_retry(video.staging_dir, video.output_dir)
-        output_dirs.append(video.output_dir)
-        clip_paths.extend(record.path for record in published_records)
+        from tennis_video_helper.media.publication import replace_output_directory
 
-    discard_review_session(session)
-    return PublishedReview(tuple(output_dirs), tuple(clip_paths))
+        replace_output_directory(publishing_dir, video.output_dir)
+    except Exception:
+        shutil.rmtree(publishing_dir, ignore_errors=True)
+        raise
 
 
 def _video_payload(video: ReviewVideoCandidate) -> dict[str, Any]:
