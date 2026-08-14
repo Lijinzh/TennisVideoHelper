@@ -590,6 +590,32 @@ def parse_output_path(output_text: str) -> Path:
     return Path(output_text.strip())
 
 
+def resolve_input_folder(input_text: str) -> Path:
+    """把输入视频或输入目录转换为可在资源管理器中打开的目录。"""
+
+    if not input_text.strip():
+        raise ValueError("请选择源视频或文件夹。")
+    path = Path(input_text.strip())
+    if path.is_dir():
+        return path.resolve()
+    if path.is_file():
+        return path.parent.resolve()
+    raise ValueError(f"输入路径不存在：{path}")
+
+
+def open_local_folder(path: Path) -> None:
+    """使用当前平台的文件管理器打开一个已存在目录。"""
+
+    resolved = path.resolve()
+    if not resolved.is_dir():
+        raise OSError(f"文件夹不存在：{resolved}")
+    if os.name == "nt":
+        os.startfile(resolved)  # type: ignore[attr-defined]
+        return
+    if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(resolved))):
+        raise OSError(f"系统无法打开文件夹：{resolved}")
+
+
 def build_stop_command(process_id: int, *, platform: str = os.name) -> list[str] | None:
     """在 Windows 上构造终止整个后台进程树的命令。"""
 
@@ -1144,6 +1170,9 @@ class MainWindow(QMainWindow):
         choose_output.triggered.connect(self._choose_output_folder)
         file_menu.addAction(choose_output)
         file_menu.addSeparator()
+        open_input = QAction("打开输入文件夹", self)
+        open_input.triggered.connect(self._open_input)
+        file_menu.addAction(open_input)
         open_output = QAction("打开输出文件夹", self)
         open_output.triggered.connect(self._open_output)
         file_menu.addAction(open_output)
@@ -1219,10 +1248,24 @@ class MainWindow(QMainWindow):
         self.input_edit.setPlaceholderText("在“文件”菜单选择视频或文件夹")
         self.input_edit.editingFinished.connect(self._input_editing_finished)
         layout.addWidget(self.input_edit, 2)
+        self.open_input_button = QPushButton("打开")
+        self.open_input_button.setObjectName("pathOpenButton")
+        self.open_input_button.setFixedWidth(58)
+        self.open_input_button.setMinimumHeight(42)
+        self.open_input_button.setToolTip(translate_text("打开输入视频所在文件夹"))
+        self.open_input_button.clicked.connect(self._open_input)
+        layout.addWidget(self.open_input_button)
         layout.addWidget(QLabel("输出"))
         self.output_edit = QLineEdit(str(default_output))
         self.output_edit.setPlaceholderText("在“文件”菜单选择输出目录")
         layout.addWidget(self.output_edit, 2)
+        self.open_output_button = QPushButton("打开")
+        self.open_output_button.setObjectName("pathOpenButton")
+        self.open_output_button.setFixedWidth(58)
+        self.open_output_button.setMinimumHeight(42)
+        self.open_output_button.setToolTip(translate_text("打开当前输出文件夹"))
+        self.open_output_button.clicked.connect(self._open_output)
+        layout.addWidget(self.open_output_button)
         return bar
 
     def _show_parameter_panel(self, _checked: bool = False) -> None:
@@ -2177,16 +2220,19 @@ class MainWindow(QMainWindow):
                 self.status_badge.setText("■  等待任务")
 
     def _set_review_session(self, session: ReviewSession) -> None:
+        published_ids = set(session.published_clip_ids)
         next_candidates = {
             clip.id: (video, clip)
             for video in session.videos
             for clip in video.clips
+            if clip.id not in published_ids
         }
         same_session = (
             self._review_session is not None
             and self._review_session.root_dir == session.root_dir
-            and set(self._review_candidates).issubset(next_candidates)
         )
+        previous_row = self.candidate_list.currentRow()
+        previous_candidate_id = self._current_candidate_id
         if not same_session:
             self._loading_candidates = True
             self.candidate_list.clear()
@@ -2195,13 +2241,27 @@ class MainWindow(QMainWindow):
             self._viewed_candidate_ids.clear()
             self._current_candidate_id = None
 
-        existing_ids = set(self._review_candidates)
+        self._loading_candidates = True
+        signals_were_blocked = self.candidate_list.blockSignals(True)
+        if same_session:
+            for index in range(self.candidate_list.count() - 1, -1, -1):
+                item = self.candidate_list.item(index)
+                candidate_id = str(item.data(Qt.ItemDataRole.UserRole))
+                if candidate_id not in next_candidates:
+                    self.candidate_list.takeItem(index)
+            self._viewed_candidate_ids.intersection_update(next_candidates)
+            if previous_candidate_id not in next_candidates:
+                self._current_candidate_id = None
+
+        existing_ids = {
+            str(self.candidate_list.item(index).data(Qt.ItemDataRole.UserRole))
+            for index in range(self.candidate_list.count())
+        }
         self._review_session = session
         self._review_candidates = next_candidates
-        self._loading_candidates = True
         for video in session.videos:
             for clip in video.clips:
-                if clip.id in existing_ids:
+                if clip.id in published_ids or clip.id in existing_ids:
                     continue
                 item = QListWidgetItem(
                     self._candidate_item_text(video, clip, viewed=False)
@@ -2220,15 +2280,29 @@ class MainWindow(QMainWindow):
                     f"原始区间：{clip.segment.output_start:.2f}–{clip.segment.output_end:.2f} 秒"
                 )
                 self.candidate_list.addItem(item)
+        self.candidate_list.blockSignals(signals_were_blocked)
         self._loading_candidates = False
-        self.video_count_label.setText(f"{len(session.clips)} 段")
+        pending_count = len(next_candidates)
+        self.video_count_label.setText(f"{pending_count} 段")
         self._update_selected_count()
         idle = self.process.state() == QProcess.ProcessState.NotRunning
-        self.select_all_action.setEnabled(idle and bool(session.clips))
-        self.select_none_action.setEnabled(idle and bool(session.clips))
-        if session.clips and self.candidate_list.currentRow() < 0:
-            self.candidate_list.setCurrentRow(0)
+        self.select_all_action.setEnabled(idle and bool(next_candidates))
+        self.select_none_action.setEnabled(idle and bool(next_candidates))
+        if next_candidates:
+            target_row = min(max(previous_row, 0), self.candidate_list.count() - 1)
+            if previous_candidate_id in next_candidates:
+                for index in range(self.candidate_list.count()):
+                    item = self.candidate_list.item(index)
+                    if str(item.data(Qt.ItemDataRole.UserRole)) == previous_candidate_id:
+                        target_row = index
+                        break
+            self.candidate_list.setCurrentRow(target_row)
+            current = self.candidate_list.item(target_row)
+            current_id = str(current.data(Qt.ItemDataRole.UserRole))
+            if self._current_candidate_id != current_id:
+                self._candidate_changed(current, None)
         else:
+            self._clear_preview_only("所有候选片段均已导出")
             self._update_navigation_buttons()
 
     def _candidate_changed(
@@ -2440,7 +2514,7 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
         self.publish_button.setEnabled(False)
         self.status_badge.setText("■  正在发布结果")
-        self.task_summary_label.setText("正在删除未勾选候选并发布正式结果……")
+        self.task_summary_label.setText("正在导出勾选片段，未导出的候选会继续保留……")
         try:
             published = publish_review_session(self._review_session, selected_ids)
         except (OSError, ValueError, RuntimeError) as exc:
@@ -2451,18 +2525,37 @@ class MainWindow(QMainWindow):
             return
 
         output_text = "\n".join(str(path) for path in published.output_dirs)
-        self._review_session = None
-        self._review_manifest_path = None
-        self._review_candidates.clear()
-        self._viewed_candidate_ids.clear()
-        self._clear_candidate_view()
         self.status_badge.setText("■  导出完成")
-        self.phase_label.setText(f"已导出 {len(published.clip_paths)} 个片段")
-        self.task_summary_label.setText("人工确认后的片段已保存到输出目录。")
+        exported_count = len(published.clip_paths)
+        remaining_session = published.remaining_session
+        if remaining_session is not None:
+            remaining_count = len(remaining_session.pending_clips)
+            self._review_manifest_path = remaining_session.manifest_path
+            self._set_review_session(remaining_session)
+            self.phase_label.setText(
+                f"本次已导出 {exported_count} 个片段，剩余 {remaining_count} 个待筛选"
+            )
+            self.task_summary_label.setText(
+                "未导出的候选片段仍保留在列表中，可以继续筛选和分批导出。"
+            )
+            message = (
+                f"已导出 {exported_count} 个片段。\n"
+                f"剩余 {remaining_count} 个候选仍保留，可以继续筛选。\n\n"
+                f"{output_text}"
+            )
+        else:
+            self._review_session = None
+            self._review_manifest_path = None
+            self._review_candidates.clear()
+            self._viewed_candidate_ids.clear()
+            self._clear_candidate_view()
+            self.phase_label.setText(f"已导出 {exported_count} 个片段")
+            self.task_summary_label.setText("人工确认后的片段已保存到输出目录。")
+            message = f"已导出 {exported_count} 个片段。\n\n{output_text}"
         QMessageBox.information(
             self,
             "导出完成",
-            f"已导出 {len(published.clip_paths)} 个片段。\n\n{output_text}",
+            message,
         )
 
     def _previous_candidate(self) -> None:
@@ -2734,14 +2827,17 @@ class MainWindow(QMainWindow):
         if path:
             self.output_edit.setText(path)
 
+    def _open_input(self) -> None:
+        try:
+            open_local_folder(resolve_input_folder(self.input_edit.text()))
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "无法打开输入目录", str(exc))
+
     def _open_output(self) -> None:
         try:
             path = parse_output_path(self.output_edit.text())
             path.mkdir(parents=True, exist_ok=True)
-            if os.name == "nt":
-                os.startfile(path)  # type: ignore[attr-defined]
-            else:
-                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+            open_local_folder(path)
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "无法打开输出目录", str(exc))
 

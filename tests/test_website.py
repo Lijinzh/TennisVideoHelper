@@ -127,7 +127,7 @@ def test_homepage_supports_system_light_dark_and_court_page_themes() -> None:
     assert ".tennis-theme-preview" in css
     assert css.count("--theme-scene: url(") == 16
     assert 'tennis-video-helper.css?v=20260812-v9' in html
-    assert 'tennis-video-helper.js?v=20260813-v10' in html
+    assert 'tennis-video-helper.js?v=20260814-v11' in html
     for asset in (
         "roland-garros-clay-court.webp",
         "wimbledon-grass-court.webp",
@@ -204,12 +204,12 @@ def test_feedback_window_builds_a_safe_prefilled_github_issue() -> None:
 def test_public_download_copy_is_current() -> None:
     html = (SITE / "index.html").read_text(encoding="utf-8")
     script = (SITE / "tennis-video-helper.js").read_text(encoding="utf-8")
-    gitcode_asset = "https://gitcode.com/Black__Jacket/TennisVideoHelper/releases/download/v0.1.3/TennisVideoHelper-Setup-0.1.3.exe"
-    assert "安装包优先从公开 GitCode 国内镜像下载" in html
-    assert gitcode_asset in html
-    assert gitcode_asset in script
-    assert "tennis-video-helper.js?v=20260813-v10" in html
-    assert "https://github.com/Lijinzh/TennisVideoHelper/releases/tag/v0.1.3" in html
+    github_asset = "https://github.com/Lijinzh/TennisVideoHelper/releases/download/v0.1.4/TennisVideoHelper-Setup-0.1.4.exe"
+    assert "最新版安装包从公开 GitHub Release 下载" in html
+    assert github_asset in html
+    assert github_asset in script
+    assert "tennis-video-helper.js?v=20260814-v11" in html
+    assert "https://github.com/Lijinzh/TennisVideoHelper/releases/tag/v0.1.4" in html
     assert "当前安装包位于私有 GitHub Release" not in html
 
 
@@ -218,7 +218,7 @@ def test_homepage_supports_persistent_english_language_switching() -> None:
     script = (SITE / "tennis-video-helper-i18n.js").read_text(encoding="utf-8")
     css = (SITE / "tennis-video-helper.css").read_text(encoding="utf-8")
     assert "data-language-toggle" in html
-    assert "tennis-video-helper-i18n.js?v=20260812-v2" in html
+    assert "tennis-video-helper-i18n.js?v=20260814-v3" in html
     assert "tvh-language" in html
     assert "tvh-language" in script
     assert "Automatic Rally Selection" in script
@@ -275,9 +275,9 @@ def test_documentation_hub_supports_navigation_search_copy_and_responsive_menu()
 
 def test_documentation_reference_matches_current_release_and_cli_contract() -> None:
     content = (SITE / "documentation" / "docs-content.js").read_text(encoding="utf-8")
-    assert "TennisVideoHelper-Setup-0.1.3.exe" in content
-    assert "231,161,078" in content
-    assert "9A7451CDB712DE811B18A74DF2101D430A73478F372F173CC4E2536EE80F258E" in content
+    assert "TennisVideoHelper-Setup-0.1.4.exe" in content
+    assert "231,136,955" in content
+    assert "AC02F957D9768C9849EFC85DF88D7CF3E331441A91AE0A8CE760FF9CCC16B40F" in content
     assert "--min-rally-duration" in content
     assert "--min-confirmed-hits" in content
     assert "--overwrite-existing / --keep-existing" in content
